@@ -1,0 +1,57 @@
+{
+  "expo": {
+    "name": "Umma Archive",
+    "slug": "umma-archive",
+    "scheme": "umma-archive",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/exam-archive-logo.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/exam-archive-logo.png",
+        "backgroundColor": "#f8f9ff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/exam-archive-logo.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#f8f9ff",
+          "image": "./assets/exam-archive-logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Umma Archive to use a photo for your profile."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Umma Archive to use the camera for photos and QR codes.",
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Umma Archive to use your location."
+        }
+      ],
+      "expo-document-picker"
+    ]
+  }
+}

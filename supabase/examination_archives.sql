@@ -1,0 +1,3 @@
+-- The full backend schema is supabase/schema.sql.
+-- Open that file and run it in the Supabase SQL editor.
+-- Do not expect this file to create tables by itself.

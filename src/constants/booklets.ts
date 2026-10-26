@@ -1,0 +1,53 @@
+export const BOOKLET_BUCKET = 'booklets';
+export const BOOKLET_PAGE_SIZE = 20;
+export const BOOKLET_DOWNLOAD_CAP = 20;
+export const BOOKLET_SIGNED_TTL_SEC = 60;
+
+export const BOOKLET_COPY = {
+  resultsTitle: 'Search Results',
+  detailsTitle: 'Booklet Details',
+  found: (count: number) => `${count} booklet${count === 1 ? '' : 's'} found`,
+  sort: 'Sort',
+  sortNewest: 'Newest',
+  sortUnitCode: 'Unit code',
+  sortSession: 'Session',
+  pdfReady: 'PDF ready',
+  notDigitised: 'Not digitised',
+  download: 'Download',
+  downloadPdf: 'Download PDF',
+  downloadAll: (count: number) => `Download all (${count} PDFs)`,
+  downloadCap: (cap: number) =>
+    `Download all is limited to ${cap} PDFs at a time. Narrow the search and try again.`,
+  viewFullScreen: 'View full screen',
+  requestPhysical: 'Request physical retrieval',
+  changeFilters: 'Change filters',
+  retry: 'Retry',
+  close: 'Close',
+  back: 'Back',
+  emptyTitle: 'No booklets match your search',
+  emptyBody: 'Try a different school, unit or student detail.',
+  notScanned: "This booklet hasn't been scanned yet",
+  notScannedBody: 'Request a physical retrieval from the examination office.',
+  previewPlaceholder: 'First page preview',
+  openPdf: 'Open PDF',
+  pageOf: (current: number, total: number) => `${current} / ${total}`,
+  courseUnit: 'Course unit',
+  registrationNo: 'Registration number',
+  studentName: 'Student name',
+  session: 'Session',
+  pageCount: 'Page count',
+  missingValue: 'Not recorded',
+  emptyFilterTitle: 'Add a search detail',
+  emptyFilter:
+    'Enter at least one school, programme, session, unit or student detail to find booklets.',
+  savedAs: (name: string) => `Saved as ${name}`,
+  downloading: 'Downloading…',
+  downloadingN: (current: number, total: number) => `Downloading ${current} of ${total}…`,
+  offline: 'No internet connection. Check your network and try again.',
+  missingFile: 'This PDF is not in the archive yet.',
+  permissionDenied: 'You do not have permission to open this booklet.',
+  shareUnavailable: 'Sharing is not available on this device.',
+  genericError: 'Something went wrong. Please try again.',
+  requested: 'Physical retrieval requested.',
+  noArchive: 'This booklet is not in the physical vault yet, so it cannot be requested.',
+} as const;

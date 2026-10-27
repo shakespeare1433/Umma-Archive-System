@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "ke.ac.umma.archive",
       "adaptiveIcon": {
         "foregroundImage": "./assets/exam-archive-logo.png",
         "backgroundColor": "#f8f9ff"

@@ -52,7 +52,8 @@
           "locationWhenInUsePermission": "Allow Umma Archive to use your location."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-sharing"
     ]
   }
 }

@@ -42,11 +42,17 @@ export const BookletResultCard: React.FC<Props> = ({
           {title}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {booklet.registrationNo || BOOKLET_COPY.missingValue}
+          {booklet.studentName || BOOKLET_COPY.missingValue}
+          {booklet.registrationNo ? ` · ${booklet.registrationNo}` : ''}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           {sessionLine}
         </Text>
+        {booklet.startPage && booklet.endPage ? (
+          <Text style={styles.meta} numberOfLines={1}>
+            {BOOKLET_COPY.pagesOf(booklet.startPage, booklet.endPage)}
+          </Text>
+        ) : null}
         <View style={[styles.chip, ready ? styles.readyChip : styles.pendingChip]}>
           <Text style={[styles.chipText, ready ? styles.readyChipText : styles.pendingChipText]}>
             {ready ? BOOKLET_COPY.pdfReady : BOOKLET_COPY.notDigitised}

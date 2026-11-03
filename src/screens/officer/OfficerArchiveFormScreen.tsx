@@ -10,309 +10,216 @@ import {
   Pressable,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useVault } from '../../context/VaultContext';
-import { ACADEMIC_SESSIONS, PROGRAMMES_BY_SCHOOL, programmesForSchool, SCHOOLS } from '../../data/catalog';
+import {
+  ACADEMIC_SESSIONS,
+  PROGRAMMES_BY_SCHOOL,
+  RACK_OPTIONS,
+  SCHOOLS,
+  programmesForSchool,
+  shelvesForSchool,
+} from '../../data/catalog';
+import { loadAcademicSessions, loadProgrammesBySchool } from '../../services/catalogService';
 import { bytesFromBase64, upsertBookletFromArchive } from '../../services/bookletService';
-import { loadProgrammesBySchool } from '../../services/catalogService';
 import { borderRadius, colors as tokens, control, spacing } from '../../theme';
-import { useCustody } from './custody';
-
-const SHELVES = ['Shelf A', 'Shelf B', 'Shelf B-01', 'Shelf A-02'];
-const RACKS = ['Rack 1', 'Rack 2', 'Rack 01', 'Rack 02', 'Rack 03'];
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
-const PENDING_PDF_NAME = 'officer-pending-booklet.pdf';
-const PDF_OPEN_ERROR = 'The selected PDF could not be opened. Choose it again.';
-
-function asPickedFile(value: unknown): File | null {
-  if (value instanceof File) return value;
-  if (Array.isArray(value) && value[0] instanceof File) return value[0];
-  if (value && typeof value === 'object' && 'canceled' in value) {
-    const picked = value as { canceled: boolean; result: unknown };
-    if (picked.canceled) return null;
-    if (picked.result instanceof File) return picked.result;
-  }
-  return null;
-}
-
-async function readPdfBytes(file: File): Promise<Uint8Array> {
-  try {
-    const bytes = await file.bytes();
-    if (bytes.byteLength > 0) return bytes;
-  } catch {
-    // Android picker URIs are often readable by another File API method.
-  }
-  try {
-    const buffer = await file.arrayBuffer();
-    if (buffer.byteLength > 0) return new Uint8Array(buffer);
-  } catch {
-    // Keep trying.
-  }
-  try {
-    const encoded = await file.base64();
-    if (encoded) return bytesFromBase64(encoded);
-  } catch {
-    // Last native option is fetch against the picker URI.
-  }
-  const response = await fetch(file.uri);
-  if (!response.ok) throw new Error(PDF_OPEN_ERROR);
-  const buffer = await response.arrayBuffer();
-  if (!buffer.byteLength) throw new Error(PDF_OPEN_ERROR);
-  return new Uint8Array(buffer);
-}
-
-async function stageReadablePdf(source: File): Promise<{ file: File; bytes: Uint8Array }> {
-  const dest = new File(Paths.cache, PENDING_PDF_NAME);
-  try {
-    if (dest.exists) dest.delete();
-  } catch {
-    // Overwrite below if the previous staged copy is still present.
-  }
-  try {
-    await source.copy(dest, { overwrite: true });
-    if (dest.exists) {
-      return { file: dest, bytes: await readPdfBytes(dest) };
-    }
-  } catch {
-    // Read the picker file in place when the cache copy is blocked.
-  }
-  return { file: source, bytes: await readPdfBytes(source) };
-}
-
-async function pickPdfSource(): Promise<{ file: File; name: string } | null> {
-  try {
-    const picked = await File.pickFileAsync({ mimeTypes: ['application/pdf'] });
-    const file = asPickedFile(picked);
-    if (picked && typeof picked === 'object' && 'canceled' in picked && (picked as { canceled: boolean }).canceled) {
-      return null;
-    }
-    if (file) return { file, name: file.name || 'booklet.pdf' };
-  } catch {
-    // Older Expo Go builds only accept the positional picker signature.
-  }
-  try {
-    const picked = await (File.pickFileAsync as (initialUri?: string, mimeType?: string) => Promise<unknown>)(
-      undefined,
-      'application/pdf'
-    );
-    const file = asPickedFile(picked);
-    if (file) return { file, name: file.name || 'booklet.pdf' };
-  } catch {
-    // Fall back to the document picker.
-  }
-  const picked = await DocumentPicker.getDocumentAsync({
-    type: 'application/pdf',
-    copyToCacheDirectory: false,
-    multiple: false,
-  });
-  if (picked.canceled || !picked.assets?.[0]) return null;
-  return { file: new File(picked.assets[0].uri), name: picked.assets[0].name || 'booklet.pdf' };
-}
-
-const DEFAULTS = {
-  school: '',
-  session: '',
-  programme: '',
-  unit: '',
-  code: '',
-  studentName: '',
-  admissionNumber: '',
-  shelf: '',
-  rack: '',
-  box: '',
-  position: '',
-};
 
 type PickerKind = 'school' | 'programme' | 'session' | 'shelf' | 'rack';
+
+interface StudentDraft {
+  key: string;
+  name: string;
+  registrationNo: string;
+  startPage: string;
+  endPage: string;
+}
+
+function emptyStudent(start = 1): StudentDraft {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: '',
+    registrationNo: '',
+    startPage: String(start),
+    endPage: '',
+  };
+}
 
 export const OfficerArchiveFormScreen: React.FC<{
   onClose: () => void;
   onDone: () => void;
 }> = ({ onClose, onDone }) => {
-  const { logBatch } = useCustody();
   const { addRecord } = useVault();
-  const [school, setSchool] = useState(DEFAULTS.school);
-  const [session, setSession] = useState(DEFAULTS.session);
-  const [programme, setProgramme] = useState(DEFAULTS.programme);
+  const [school, setSchool] = useState('');
+  const [programme, setProgramme] = useState('');
+  const [session, setSession] = useState('');
+  const [unit, setUnit] = useState('');
+  const [code, setCode] = useState('');
+  const [students, setStudents] = useState<StudentDraft[]>([emptyStudent(1)]);
+  const [shelf, setShelf] = useState('');
+  const [rack, setRack] = useState('');
+  const [box, setBox] = useState('');
+  const [position, setPosition] = useState('');
+  const [pdfName, setPdfName] = useState('');
+  const [pdfSize, setPdfSize] = useState(0);
   const [programmesBySchool, setProgrammesBySchool] = useState(PROGRAMMES_BY_SCHOOL);
-  const [unit, setUnit] = useState(DEFAULTS.unit);
-  const [code, setCode] = useState(DEFAULTS.code);
-  const [studentName, setStudentName] = useState(DEFAULTS.studentName);
-  const [admissionNumber, setAdmissionNumber] = useState(DEFAULTS.admissionNumber);
-  const [shelf, setShelf] = useState(DEFAULTS.shelf);
-  const [rack, setRack] = useState(DEFAULTS.rack);
-  const [box, setBox] = useState(DEFAULTS.box);
-  const [position, setPosition] = useState(DEFAULTS.position);
+  const [sessions, setSessions] = useState<string[]>([...ACADEMIC_SESSIONS]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [pdfName, setPdfName] = useState('');
-  const [pdfUri, setPdfUri] = useState('');
-  const [pdfIsPdf, setPdfIsPdf] = useState(false);
+  const [progress, setProgress] = useState('');
   const [picker, setPicker] = useState<PickerKind | null>(null);
   const pdfBytesRef = useRef<Uint8Array | null>(null);
   const programmeChoices = useMemo(
     () => programmesForSchool(school, programmesBySchool),
     [school, programmesBySchool]
   );
+  const shelfChoices = useMemo(() => shelvesForSchool(school), [school]);
 
   useEffect(() => {
     let cancelled = false;
-    loadProgrammesBySchool()
-      .then((next) => {
-        if (!cancelled) setProgrammesBySchool(next);
+    Promise.all([loadProgrammesBySchool(), loadAcademicSessions()])
+      .then(([nextProgrammes, nextSessions]) => {
+        if (cancelled) return;
+        setProgrammesBySchool(nextProgrammes);
+        setSessions(nextSessions);
       })
-      .catch(() => {
-        // Bundled school lists still drive the dropdowns if the catalog query fails.
-      });
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const reset = () => {
-    setSchool(DEFAULTS.school);
-    setProgramme(DEFAULTS.programme);
-    setSession(DEFAULTS.session);
-    setUnit(DEFAULTS.unit);
-    setCode(DEFAULTS.code);
-    setStudentName(DEFAULTS.studentName);
-    setAdmissionNumber(DEFAULTS.admissionNumber);
-    setShelf(DEFAULTS.shelf);
-    setRack(DEFAULTS.rack);
-    setBox(DEFAULTS.box);
-    setPosition(DEFAULTS.position);
-    setPdfName('');
-    setPdfUri('');
-    setPdfIsPdf(false);
-    pdfBytesRef.current = null;
+  const readPdfBytes = async (uri: string) => {
+    try {
+      const response = await fetch(uri);
+      if (response.ok) {
+        const buffer = await response.arrayBuffer();
+        if (buffer.byteLength > 0) return new Uint8Array(buffer);
+      }
+    } catch {
+      // Android content URIs often need the file API.
+    }
+    const encoded = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    return bytesFromBase64(encoded);
+  };
+
+  const attachPdf = async (uri: string, name: string, mime?: string | null) => {
+    const looksPdf = (mime || '').includes('pdf') || name.toLowerCase().endsWith('.pdf');
+    if (!looksPdf) {
+      setError('Choose a PDF file for the scanned booklet.');
+      return;
+    }
+    const bytes = await readPdfBytes(uri);
+    if (bytes.byteLength < 5) {
+      setError('The selected file is empty. Choose a valid PDF.');
+      return;
+    }
+    const header = String.fromCharCode(...bytes.slice(0, 4));
+    if (header !== '%PDF') {
+      setError('Choose a valid PDF file for the combined examination scripts.');
+      return;
+    }
+    pdfBytesRef.current = bytes;
+    setPdfName(name);
+    setPdfSize(bytes.byteLength);
     setError('');
   };
 
-  const clearPdf = () => {
-    pdfBytesRef.current = null;
-    setPdfName('');
-    setPdfUri('');
-    setPdfIsPdf(false);
-  };
-
-  const pickScannedPdf = async () => {
-    try {
-      const picked = await pickPdfSource();
-      if (!picked) return;
-      const staged = await stageReadablePdf(picked.file);
-      if (staged.bytes.byteLength > MAX_PDF_BYTES) {
-        clearPdf();
-        setError('The scanned PDF must be 20 MB or smaller.');
-        return;
-      }
-      pdfBytesRef.current = staged.bytes;
-      setError('');
-      setPdfName(picked.name || staged.file.name || 'booklet.pdf');
-      setPdfUri(staged.file.uri);
-      setPdfIsPdf(true);
-    } catch (pickError) {
-      clearPdf();
-      setError(pickError instanceof Error ? pickError.message : PDF_OPEN_ERROR);
-    }
-  };
-
-  const scanBooklet = async () => {
+  const scanPdf = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      setError('Allow camera access to scan a booklet.');
+      setError('Allow camera access to scan a booklet, or choose a PDF instead.');
       return;
     }
-    const captured = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
-      allowsEditing: false,
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false });
+    if (result.canceled || !result.assets?.[0]) return;
+    setError('Camera captures a photo. Use Choose PDF to attach the scanned booklet file.');
+  };
+
+  const choosePdf = async () => {
+    const picked = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
     });
-    if (captured.canceled || !captured.assets?.[0]) return;
-    pdfBytesRef.current = null;
-    setError('Attach the scan as a PDF so lecturers can search it. Use Choose PDF.');
-    setPdfName(captured.assets[0].fileName || 'scan.jpg');
-    setPdfUri(captured.assets[0].uri);
-    setPdfIsPdf(false);
+    if (picked.canceled || !picked.assets?.[0]) return;
+    const file = picked.assets[0];
+    await attachPdf(file.uri, file.name || 'booklet.pdf', file.mimeType);
   };
 
   const submit = async () => {
-    const pdfBytes = pdfBytesRef.current;
-    if (!pdfUri || !pdfIsPdf || !pdfBytes?.byteLength) {
-      setError('Attach the scanned booklet PDF. Lecturers search from this file.');
-      return;
+    if (!pdfBytesRef.current) return setError('Attach the combined PDF of the examination scripts.');
+    if (!school.trim()) return setError('Select the school.');
+    if (programmeChoices.length > 0 && !programme.trim()) return setError('Select the programme.');
+    if (!session.trim()) return setError('Select the academic session.');
+    if (!unit.trim() || !code.trim()) return setError('Enter the unit name and unit code.');
+    if (shelfChoices.length > 0 && !shelf.trim()) return setError('Select the shelf for this school.');
+    const parsed = students.map((row, index) => {
+      const startPage = Number(row.startPage);
+      const endPage = Number(row.endPage);
+      return {
+        index,
+        studentName: row.name.trim(),
+        registrationNo: row.registrationNo.trim(),
+        startPage,
+        endPage,
+      };
+    });
+    for (const row of parsed) {
+      if (!row.studentName) return setError(`Enter the student name for script ${row.index + 1}.`);
+      if (!row.registrationNo) return setError(`Enter the registration number for ${row.studentName}.`);
+      if (!Number.isInteger(row.startPage) || row.startPage < 1) {
+        return setError(`Enter a valid starting page for ${row.studentName}.`);
+      }
+      if (!Number.isInteger(row.endPage) || row.endPage < row.startPage) {
+        return setError(`Ending page must be the same as or after the starting page for ${row.studentName}.`);
+      }
     }
-    if (!school.trim()) {
-      setError('Select the school.');
-      return;
-    }
-    if (programmeChoices.length > 0 && !programme.trim()) {
-      setError('Select the programme.');
-      return;
-    }
-    if (!unit.trim() || !code.trim()) {
-      setError('Enter the unit name and unit code.');
-      return;
-    }
-    if (!session.trim()) {
-      setError('Select the academic session.');
-      return;
-    }
-    if (!admissionNumber.trim()) {
-      setError('Enter the registration number.');
-      return;
+    const regs = parsed.map((row) => row.registrationNo.toLowerCase());
+    if (new Set(regs).size !== regs.length) {
+      return setError('Each registration number can appear only once in this combined PDF.');
     }
     setError('');
     setSaving(true);
+    setProgress('Saving examination details…');
     try {
+      const first = parsed[0];
       const saved = await addRecord({
-        faculty: school,
-        programme: programme.trim(),
-        session,
         courseCode: code.trim(),
         courseName: unit.trim(),
-        studentName: studentName.trim(),
-        admissionNumber: admissionNumber.trim(),
-        scriptCount: 1,
-        shelf: shelf.trim() || 'Vault',
-        rack: rack.trim() || '',
-        box: box.trim() || '',
-        pos: position.trim() || '',
-        status: 'Original Booklet',
+        session,
+        faculty: school,
+        programme: programme.trim(),
+        studentName: first.studentName,
+        admissionNumber: first.registrationNo,
+        shelf: shelf.trim() || 'Not recorded',
+        rack: rack.trim() || 'Not recorded',
+        box: box.trim() || 'Not recorded',
+        pos: position.trim() || 'Not recorded',
+        status: 'Digitized Copy',
         vaultStatus: 'Verified in Vault',
-        isRequested: false,
+        scriptCount: parsed.length,
       });
+      setProgress(`Uploading ${pdfName || 'combined PDF'}…`);
       await upsertBookletFromArchive({
         archiveId: saved.id,
-        unitCode: saved.courseCode,
-        unitName: saved.courseName,
-        programme: saved.programme ?? programme.trim(),
-        school: saved.faculty,
-        academicSession: saved.session,
-        registrationNo: saved.admissionNumber,
-        studentName: saved.studentName,
-        pdfBytes,
+        unitCode: code.trim(),
+        unitName: unit.trim(),
+        programme: programme.trim(),
+        school,
+        academicSession: session,
+        registrationNo: first.registrationNo,
+        studentName: first.studentName,
+        pdfBytes: pdfBytesRef.current,
+        students: parsed,
+        pageCount: Math.max(...parsed.map((row) => row.endPage)),
       });
-      logBatch({
-        code: saved.courseCode,
-        title: saved.courseName,
-        scripts: 1,
-        box: saved.box,
-        shelf: saved.rack ? `${saved.shelf}, ${saved.rack}` : saved.shelf,
-        archiveId: saved.id,
-      });
-      reset();
       onDone();
     } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : 'The archive could not be saved.';
-      const lower = message.toLowerCase();
-      setError(
-        lower.includes('isn\'t readable') || lower.includes('readasstringasync')
-          ? 'The selected PDF could not be opened. Choose it again, then tap Archive booklet.'
-          : message
-      );
+      setError(saveError instanceof Error ? saveError.message : 'The booklet could not be archived.');
     } finally {
       setSaving(false);
+      setProgress('');
     }
   };
 
@@ -322,11 +229,11 @@ export const OfficerArchiveFormScreen: React.FC<{
       : picker === 'programme'
         ? programmeChoices
         : picker === 'session'
-          ? [...ACADEMIC_SESSIONS]
+          ? sessions
           : picker === 'shelf'
-            ? SHELVES
+            ? shelfChoices
             : picker === 'rack'
-              ? RACKS
+              ? [...RACK_OPTIONS]
               : [];
 
   return (
@@ -337,72 +244,36 @@ export const OfficerArchiveFormScreen: React.FC<{
         contentContainerStyle={styles.content}
       >
         <Text style={styles.title}>Archive booklet</Text>
-        <Text style={styles.subtitle}>Upload the scan and enter the details lecturers will search by</Text>
+        <Text style={styles.subtitle}>
+          Upload one combined PDF for this sitting, then record each student’s page range and the shelf location.
+        </Text>
 
         <View style={styles.card}>
-          <StepHeader step={1} title="Scanned PDF" hint="Required" />
-          <View style={styles.dropzone}>
-            {pdfName ? (
-              <>
-                <MaterialCommunityIcons name="file-pdf-box" size={32} color={tokens.primary} />
-                <Text style={styles.dropTitle} numberOfLines={2}>
-                  {pdfName}
-                </Text>
-                <TouchableOpacity
-                  onPress={clearPdf}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove scanned PDF"
-                >
-                  <Text style={styles.removeText}>Remove</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <View style={styles.dropIcon}>
-                  <Feather name="file-text" size={22} color={tokens.secondary} />
-                </View>
-                <Text style={styles.dropTitle}>Attach the scanned booklet</Text>
-                <Text style={styles.dropHint}>PDF, up to 20 MB</Text>
-              </>
-            )}
-            <View style={styles.dropActions}>
-              <TouchableOpacity
-                style={styles.scanBtn}
-                onPress={() => {
-                  void scanBooklet();
-                }}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Scan booklet"
-              >
-                <MaterialCommunityIcons name="line-scan" size={16} color={tokens.onPrimary} />
-                <Text style={styles.scanBtnText}>Scan</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.chooseBtn}
-                onPress={() => {
-                  void pickScannedPdf();
-                }}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Choose PDF"
-              >
-                <Feather name="upload" size={16} color={tokens.primary} />
-                <Text style={styles.chooseBtnText}>Choose PDF</Text>
-              </TouchableOpacity>
-            </View>
+          <StepHeader step={1} title="Combined PDF" hint="Required · one file for all students" />
+          {pdfName ? (
+            <Text style={styles.pdfName}>
+              {pdfName}
+              {pdfSize ? ` · ${(pdfSize / (1024 * 1024)).toFixed(1)} MB` : ''}
+            </Text>
+          ) : (
+            <Text style={styles.hint}>No PDF attached yet. Choose the combined examination scripts file.</Text>
+          )}
+          <View style={styles.row}>
+            <TouchableOpacity style={styles.ghost} onPress={() => void scanPdf()}>
+              <Feather name="camera" size={16} color={tokens.primary} />
+              <Text style={styles.ghostText}>Scan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.ghost} onPress={() => void choosePdf()}>
+              <Feather name="file-text" size={16} color={tokens.primary} />
+              <Text style={styles.ghostText}>Choose PDF</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.card}>
-          <StepHeader step={2} title="Booklet details" hint="Used for lecturer search" />
+          <StepHeader step={2} title="Examination information" hint="Required" />
           <Field label="School" required>
-            <Select
-              value={school}
-              placeholder="Select school"
-              onPress={() => setPicker('school')}
-            />
+            <Select value={school} placeholder="Select school" onPress={() => setPicker('school')} />
           </Field>
           <Field label="Programme" required={programmeChoices.length > 0}>
             <Select
@@ -421,13 +292,16 @@ export const OfficerArchiveFormScreen: React.FC<{
               icon="book"
             />
           </Field>
+          <Field label="Academic Session" required>
+            <Select value={session} placeholder="Select academic session" onPress={() => setPicker('session')} icon="calendar" />
+          </Field>
           <View style={styles.split}>
             <Field label="Unit name" required>
               <TextInput
                 style={styles.input}
                 value={unit}
                 onChangeText={setUnit}
-                placeholder="Unit name"
+                placeholder="Introduction to Programming"
                 placeholderTextColor={tokens.placeholder}
               />
             </Field>
@@ -436,36 +310,7 @@ export const OfficerArchiveFormScreen: React.FC<{
                 style={styles.input}
                 value={code}
                 onChangeText={setCode}
-                placeholder="Code"
-                placeholderTextColor={tokens.placeholder}
-                autoCapitalize="characters"
-              />
-            </Field>
-          </View>
-          <Field label="Academic session" required>
-            <Select
-              value={session}
-              placeholder="Select session"
-              onPress={() => setPicker('session')}
-              icon="calendar"
-            />
-          </Field>
-          <View style={styles.split}>
-            <Field label="Student name">
-              <TextInput
-                style={styles.input}
-                value={studentName}
-                onChangeText={setStudentName}
-                placeholder="Name"
-                placeholderTextColor={tokens.placeholder}
-              />
-            </Field>
-            <Field label="Registration no." required>
-              <TextInput
-                style={styles.input}
-                value={admissionNumber}
-                onChangeText={setAdmissionNumber}
-                placeholder="REG/…"
+                placeholder="CS101"
                 placeholderTextColor={tokens.placeholder}
                 autoCapitalize="characters"
               />
@@ -474,37 +319,139 @@ export const OfficerArchiveFormScreen: React.FC<{
         </View>
 
         <View style={styles.card}>
-          <StepHeader step={3} title="Storage location" hint="Optional · helps locate the paper booklet" />
+          <StepHeader
+            step={3}
+            title="Student scripts"
+            hint={`${students.length} script${students.length === 1 ? '' : 's'} in this PDF`}
+          />
+          {students.map((row, index) => (
+            <View key={row.key} style={styles.studentCard}>
+              <View style={styles.studentHead}>
+                <Text style={styles.studentTitle}>Student {index + 1}</Text>
+                {students.length > 1 ? (
+                  <TouchableOpacity
+                    onPress={() => setStudents((current) => current.filter((item) => item.key !== row.key))}
+                  >
+                    <Text style={styles.removeStudent}>Remove</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Field label="Student Name" required>
+                <TextInput
+                  style={styles.input}
+                  value={row.name}
+                  onChangeText={(value) =>
+                    setStudents((current) =>
+                      current.map((item) => (item.key === row.key ? { ...item, name: value } : item))
+                    )
+                  }
+                  placeholder="Student name"
+                  placeholderTextColor={tokens.placeholder}
+                />
+              </Field>
+              <Field label="Registration Number" required>
+                <TextInput
+                  style={styles.input}
+                  value={row.registrationNo}
+                  onChangeText={(value) =>
+                    setStudents((current) =>
+                      current.map((item) => (item.key === row.key ? { ...item, registrationNo: value } : item))
+                    )
+                  }
+                  placeholder="CIT/00452/2021"
+                  placeholderTextColor={tokens.placeholder}
+                  autoCapitalize="characters"
+                />
+              </Field>
+              <View style={styles.split}>
+                <Field label="Starting page" required>
+                  <TextInput
+                    style={styles.input}
+                    value={row.startPage}
+                    onChangeText={(value) =>
+                      setStudents((current) =>
+                        current.map((item) => (item.key === row.key ? { ...item, startPage: value } : item))
+                      )
+                    }
+                    placeholder="1"
+                    keyboardType="number-pad"
+                    placeholderTextColor={tokens.placeholder}
+                  />
+                </Field>
+                <Field label="Ending page" required>
+                  <TextInput
+                    style={styles.input}
+                    value={row.endPage}
+                    onChangeText={(value) =>
+                      setStudents((current) =>
+                        current.map((item) => (item.key === row.key ? { ...item, endPage: value } : item))
+                      )
+                    }
+                    placeholder="5"
+                    keyboardType="number-pad"
+                    placeholderTextColor={tokens.placeholder}
+                  />
+                </Field>
+              </View>
+            </View>
+          ))}
+          <TouchableOpacity
+            style={styles.addStudent}
+            onPress={() => {
+              const last = students[students.length - 1];
+              const nextStart = Number(last?.endPage);
+              setStudents((current) => [...current, emptyStudent(Number.isInteger(nextStart) && nextStart > 0 ? nextStart + 1 : 1)]);
+            }}
+          >
+            <Feather name="plus" size={16} color={tokens.primary} />
+            <Text style={styles.addStudentText}>Add another student</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <StepHeader
+            step={4}
+            title="Physical shelf location"
+            hint={shelfChoices.length ? 'Required for this school' : 'Shelf list not specified for this school'}
+          />
           <View style={styles.split}>
-            <Field label="Shelf">
-              <Select value={shelf} placeholder="Shelf A" onPress={() => setPicker('shelf')} />
+            <Field label="Shelf" required={shelfChoices.length > 0}>
+              <Select
+                value={shelf}
+                placeholder={shelfChoices.length ? 'Select shelf' : 'Not yet specified'}
+                onPress={() => {
+                  if (!shelfChoices.length) return;
+                  setPicker('shelf');
+                }}
+              />
             </Field>
             <Field label="Rack">
-              <Select value={rack} placeholder="Rack 2" onPress={() => setPicker('rack')} />
+              <Select value={rack} placeholder="Rack 1" onPress={() => setPicker('rack')} />
             </Field>
           </View>
           <View style={styles.split}>
-            <Field label="Box number">
+            <Field label="Box">
               <TextInput
                 style={styles.input}
                 value={box}
                 onChangeText={setBox}
-                placeholder="Box 4"
+                placeholder="Box 2"
                 placeholderTextColor={tokens.placeholder}
               />
             </Field>
-            <Field label="Slot">
+            <Field label="Position">
               <TextInput
                 style={styles.input}
                 value={position}
                 onChangeText={setPosition}
-                placeholder="15"
+                placeholder="Position 3"
                 placeholderTextColor={tokens.placeholder}
               />
             </Field>
           </View>
         </View>
 
+        {progress ? <Text style={styles.progress}>{progress}</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
 
@@ -512,9 +459,9 @@ export const OfficerArchiveFormScreen: React.FC<{
         <TouchableOpacity style={styles.cancel} onPress={onClose} activeOpacity={0.85}>
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.save} onPress={submit} disabled={saving} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.save} onPress={() => void submit()} disabled={saving} activeOpacity={0.85}>
           <MaterialCommunityIcons name="check-circle-outline" size={18} color={tokens.onPrimary} />
-          <Text style={styles.saveText}>{saving ? 'Saving…' : 'Archive booklet'}</Text>
+          <Text style={styles.saveText}>{saving ? progress || 'Saving…' : 'Archive booklet'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -526,31 +473,35 @@ export const OfficerArchiveFormScreen: React.FC<{
                 ? 'School'
                 : picker === 'programme'
                   ? 'Programme'
-                  : picker === 'session'
-                    ? 'Academic session'
+                    : picker === 'session'
+                    ? 'Academic Session'
                     : picker === 'shelf'
                       ? 'Shelf'
                       : 'Rack'}
             </Text>
-            {options.map((option) => (
-              <TouchableOpacity
-                key={option}
-                style={styles.option}
-                onPress={() => {
-                  if (picker === 'school') {
-                    setSchool(option);
-                    const nextProgrammes = programmesForSchool(option, programmesBySchool);
-                    setProgramme((current) => (nextProgrammes.includes(current) ? current : ''));
-                  } else if (picker === 'programme') setProgramme(option);
-                  else if (picker === 'session') setSession(option);
-                  else if (picker === 'shelf') setShelf(option);
-                  else setRack(option);
-                  setPicker(null);
-                }}
-              >
-                <Text style={styles.optionText}>{option}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={styles.sheetList} keyboardShouldPersistTaps="handled">
+              {options.map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  style={styles.option}
+                  onPress={() => {
+                    if (picker === 'school') {
+                      setSchool(option);
+                      const nextProgrammes = programmesForSchool(option, programmesBySchool);
+                      setProgramme((current) => (nextProgrammes.includes(current) ? current : ''));
+                      const nextShelves = shelvesForSchool(option);
+                      setShelf((current) => (nextShelves.includes(current) ? current : ''));
+                    } else if (picker === 'programme') setProgramme(option);
+                    else if (picker === 'session') setSession(option);
+                    else if (picker === 'shelf') setShelf(option);
+                    else setRack(option);
+                    setPicker(null);
+                  }}
+                >
+                  <Text style={styles.optionText}>{option}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -640,45 +591,21 @@ const styles = StyleSheet.create({
   stepCopy: { flex: 1 },
   stepTitle: { fontSize: 15, fontWeight: '800', color: tokens.onSurface },
   stepHint: { marginTop: 1, fontSize: 12, color: tokens.onSurfaceVariant },
-  dropzone: {
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    borderColor: tokens.secondary,
-    borderRadius: borderRadius.lg,
-    backgroundColor: tokens.surfaceContainerLow,
-    paddingVertical: 18,
-    paddingHorizontal: 14,
-    alignItems: 'center',
+  hint: { fontSize: 13, color: tokens.onSurfaceVariant, marginBottom: 10 },
+  pdfName: { fontSize: 13, fontWeight: '700', color: tokens.primary, marginBottom: 10 },
+  studentCard: {
+    borderWidth: 1,
+    borderColor: tokens.inputBorder,
+    borderRadius: borderRadius.md,
+    padding: 10,
+    marginBottom: 10,
   },
-  dropIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#C2410C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  dropTitle: { fontSize: 14, fontWeight: '700', color: tokens.onSurface, textAlign: 'center' },
-  dropHint: { marginTop: 4, fontSize: 12, color: tokens.onSurfaceVariant },
-  removeText: { marginTop: 6, fontSize: 12, fontWeight: '700', color: tokens.secondary },
-  dropActions: { flexDirection: 'row', gap: 10, marginTop: 14, width: '100%' },
-  scanBtn: {
-    flex: 1,
+  studentHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  studentTitle: { fontSize: 13, fontWeight: '800', color: tokens.onSurface },
+  removeStudent: { fontSize: 12, fontWeight: '700', color: tokens.error },
+  addStudent: {
     height: 42,
     borderRadius: borderRadius.pill,
-    backgroundColor: tokens.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  scanBtnText: { color: tokens.onPrimary, fontWeight: '700', fontSize: 14 },
-  chooseBtn: {
-    flex: 1,
-    height: 42,
-    borderRadius: borderRadius.pill,
-    backgroundColor: tokens.surfaceContainerLowest,
     borderWidth: 1.5,
     borderColor: tokens.primary,
     flexDirection: 'row',
@@ -686,7 +613,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
-  chooseBtnText: { color: tokens.primary, fontWeight: '700', fontSize: 14 },
+  addStudentText: { color: tokens.primary, fontWeight: '700' },
+  progress: { color: tokens.primary, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  row: { flexDirection: 'row', gap: 10 },
+  ghost: {
+    flex: 1,
+    height: 44,
+    borderRadius: borderRadius.pill,
+    borderWidth: 1.5,
+    borderColor: tokens.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  ghostText: { color: tokens.primary, fontWeight: '700' },
   split: { flexDirection: 'row', gap: 10 },
   field: { flex: 1, marginBottom: 10 },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: tokens.onSurface, marginBottom: 6 },
@@ -752,6 +693,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     maxHeight: '70%',
   },
+  sheetList: { flexGrow: 0 },
   sheetTitle: { fontSize: 16, fontWeight: '800', color: tokens.onSurface, marginBottom: 8 },
   option: { paddingVertical: 14, borderTopWidth: 1, borderTopColor: tokens.outlineVariant },
   optionText: { fontSize: 15, fontWeight: '600', color: tokens.onSurface },

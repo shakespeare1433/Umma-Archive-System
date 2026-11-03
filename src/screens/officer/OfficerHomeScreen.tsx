@@ -6,7 +6,7 @@ import { noticeWhenGroup } from '../../components/NotificationCard';
 import { useAuth } from '../../context/AuthContext';
 import { countDigitisedBooklets } from '../../services/bookletService';
 import { borderRadius, colors as tokens, control, spacing } from '../../theme';
-import { PAGE, StatusFilter, useCustody } from './custody';
+import { PAGE, useCustody } from './custody';
 
 const LIBRARY_HERO = require('../../../assets/images/library-hero.png');
 const AVATAR_SIZE = 56;
@@ -24,7 +24,7 @@ interface Props {
   onLogBatch: () => void;
   onArchive: () => void;
   onUpdateLocation: () => void;
-  onOpenRequests: (filter?: StatusFilter) => void;
+  onOpenUploads: () => void;
   onOpenRequest: (id: string) => void;
   onVerify: (id: string) => void;
   onRetrieve: (id: string) => void;
@@ -53,7 +53,7 @@ function activityWhen(iso?: string) {
 export const OfficerHomeScreen: React.FC<Props> = ({
   onLogBatch,
   onArchive,
-  onOpenRequests,
+  onOpenUploads,
   onOpenRequest,
 }) => {
   const { user } = useAuth();
@@ -151,14 +151,13 @@ export const OfficerHomeScreen: React.FC<Props> = ({
             label: 'Pending Requests',
             value: stats.pending,
             color: tokens.statusNoticeOrange,
-            onPress: () => onOpenRequests('Pending Review'),
           },
           {
             key: 'uploaded',
             label: 'Booklets Uploaded',
             value: uploaded,
             color: tokens.statusNoticeGreen,
-            onPress: onLogBatch,
+            onPress: onOpenUploads,
           },
         ]}
       />
@@ -184,16 +183,6 @@ export const OfficerHomeScreen: React.FC<Props> = ({
             <MaterialCommunityIcons name="clock-outline" size={18} color={tokens.statusNoticeBlue} />
             <Text style={styles.activityTitle}>Recent Activity</Text>
           </View>
-          <TouchableOpacity
-            onPress={() => onOpenRequests('All')}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityLabel="View all activity"
-            style={styles.viewAll}
-          >
-            <Text style={styles.viewAllText}>View all</Text>
-            <Feather name="arrow-right" size={14} color={tokens.statusNoticeBlue} />
-          </TouchableOpacity>
         </View>
 
         {activity.length === 0 ? (
@@ -251,7 +240,7 @@ type PieSlice = {
   label: string;
   value: number;
   color: string;
-  onPress: () => void;
+  onPress?: () => void;
 };
 
 const PIE_SIZE = 132;

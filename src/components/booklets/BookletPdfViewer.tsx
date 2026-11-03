@@ -27,8 +27,10 @@ export const BookletPdfViewer: React.FC<Props> = ({
   const { theme } = useTheme();
   const palette = lecturerPalette(theme);
   const styles = useMemo(() => createStyles(palette), [theme]);
-  const total = Math.max(booklet.pageCount ?? 1, 1);
-  const [page, setPage] = useState(1);
+  const start = booklet.startPage && booklet.startPage > 0 ? booklet.startPage : 1;
+  const end = booklet.endPage && booklet.endPage >= start ? booklet.endPage : Math.max(booklet.pageCount ?? start, start);
+  const total = Math.max(end, 1);
+  const [page, setPage] = useState(start);
   const [opening, setOpening] = useState(false);
 
   const openPdf = async () => {
@@ -39,8 +41,9 @@ export const BookletPdfViewer: React.FC<Props> = ({
     setOpening(true);
     try {
       const url = await createBookletSignedUrl(booklet.pdfPath);
+      const pageUrl = start > 1 ? `${url}#page=${start}` : url;
       await logBookletAction(booklet.id, 'view');
-      await WebBrowser.openBrowserAsync(url, { enableBarCollapsing: true });
+      await WebBrowser.openBrowserAsync(pageUrl, { enableBarCollapsing: true });
     } catch (error) {
       onError?.(friendlyBookletError(error));
     } finally {
@@ -53,17 +56,18 @@ export const BookletPdfViewer: React.FC<Props> = ({
       <View style={styles.preview}>
         <MaterialCommunityIcons name="file-pdf-box" size={fullscreen ? 72 : 48} color={tokens.onPrimary} />
         <Text style={styles.placeholder}>{BOOKLET_COPY.previewPlaceholder}</Text>
+        <Text style={styles.pageLabel}>{BOOKLET_COPY.pagesOf(start, end)}</Text>
         <Text style={styles.pageLabel}>{BOOKLET_COPY.pageOf(page, total)}</Text>
       </View>
       <View style={styles.pager}>
         <TouchableOpacity
           style={styles.pagerBtn}
-          onPress={() => setPage((current) => Math.max(1, current - 1))}
-          disabled={page <= 1}
+          onPress={() => setPage((current) => Math.max(start, current - 1))}
+          disabled={page <= start}
           accessibilityRole="button"
           accessibilityLabel="Previous page"
         >
-          <Feather name="chevron-left" size={22} color={page <= 1 ? palette.muted : tokens.onPrimary} />
+          <Feather name="chevron-left" size={22} color={page <= start ? palette.muted : tokens.onPrimary} />
         </TouchableOpacity>
         <Text style={styles.pageLabel}>{BOOKLET_COPY.pageOf(page, total)}</Text>
         <TouchableOpacity

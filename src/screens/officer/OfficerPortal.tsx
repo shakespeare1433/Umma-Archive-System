@@ -8,8 +8,8 @@ import { useAuth } from '../../context/AuthContext';
 import { ARCHIVE_BAR, ExamArchiveBar } from '../../components/ExamArchiveBar';
 import { CustodyProvider, PAGE } from './custody';
 import { OfficerHomeScreen } from './OfficerHomeScreen';
-import { OfficerUploadsScreen } from './OfficerUploadsScreen';
 import { OfficerArchiveFormScreen } from './OfficerArchiveFormScreen';
+import { OfficerUploadsScreen } from './OfficerUploadsScreen';
 import { OfficerProfileView } from './OfficerProfileView';
 import {
   OfficerBookletScreen,
@@ -125,7 +125,7 @@ const OfficerShell: React.FC = () => {
               onLogBatch={() => push({ name: 'log' })}
               onArchive={() => goTab('Archive')}
               onUpdateLocation={() => push({ name: 'location' })}
-              onOpenRequests={() => goTab('Uploads')}
+              onOpenUploads={() => goTab('Uploads')}
               onOpenRequest={(id) => push({ name: 'request', id })}
               onVerify={(id) => push({ name: 'verify', id })}
               onRetrieve={(id) => push({ name: 'retrieve', id })}
@@ -133,10 +133,10 @@ const OfficerShell: React.FC = () => {
             />
           ) : null}
           {route.name === 'tabs' && tab === 'Uploads' ? (
-            <OfficerUploadsScreen />
+            <OfficerUploadsScreen onScan={() => goTab('Archive')} />
           ) : null}
           {route.name === 'tabs' && tab === 'Archive' ? (
-            <OfficerArchiveFormScreen onClose={() => goTab('Uploads')} onDone={() => goTab('Uploads')} />
+            <OfficerArchiveFormScreen onClose={() => goTab('Home')} onDone={() => goTab('Uploads')} />
           ) : null}
           {route.name === 'tabs' && tab === 'Profile' ? (
             <ProfilePane intent={profileIntent} onIntentHandled={() => setProfileIntent(null)} />
@@ -179,7 +179,7 @@ const OfficerShell: React.FC = () => {
           {route.name === 'notifications' ? (
             <OfficerNotificationsScreen
               onBack={back}
-              onOpenRequests={() => goTab('Uploads')}
+              onOpenRequests={() => goTab('Home')}
               onVerify={(id) => push({ name: 'verify', id })}
               onArchive={() => goTab('Archive')}
             />

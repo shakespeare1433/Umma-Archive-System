@@ -18,7 +18,7 @@ import { MaterialCommunityIcons, Feather, MaterialIcons } from '@expo/vector-ico
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
-import { ALL_SESSIONS, ArchivedExaminationRecord, RootStackParamList } from '../../types';
+import { ALL_SESSIONS, RootStackParamList } from '../../types';
 import { BOOKLET_COPY } from '../../constants/booklets';
 import { hasActiveBookletFilter } from '../../services/bookletService';
 import {
@@ -29,7 +29,7 @@ import {
   programmesForSchool,
   SCHOOLS,
 } from '../../data/catalog';
-import { loadProgrammesBySchool } from '../../services/catalogService';
+import { loadAcademicSessions, loadProgrammesBySchool } from '../../services/catalogService';
 import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
 
 const SEARCH_COPY = {
@@ -42,7 +42,7 @@ const SEARCH_COPY = {
   unitCode: 'Unit Code',
   unitName: 'Unit Name',
   studentName: 'Student Name',
-  admissionNumber: 'Admission Number',
+  admissionNumber: 'Registration Number',
   optional: 'Optional',
   search: 'Search',
   info: 'You can search using any combination of the above details.',
@@ -64,21 +64,23 @@ export const SearchArchiveScreen: React.FC = () => {
     searchFilter,
     setSearchFilter,
     resetSearchFilter,
-    requestBooklet,
     logSearch,
   } = useVault();
 
   const schools = [ALL_SCHOOLS, ...SCHOOLS];
-  const sessions = [ALL_SESSIONS, ...ACADEMIC_SESSIONS];
+  const [sessionChoices, setSessionChoices] = useState<string[]>([...ACADEMIC_SESSIONS]);
+  const sessions = [ALL_SESSIONS, ...sessionChoices];
   const [programmesBySchool, setProgrammesBySchool] = useState(PROGRAMMES_BY_SCHOOL);
   const programmeChoices = programmesForSchool(searchFilter.faculty, programmesBySchool);
   const programmes = [ALL_PROGRAMMES, ...programmeChoices];
 
   useEffect(() => {
     let cancelled = false;
-    loadProgrammesBySchool()
-      .then((next) => {
-        if (!cancelled) setProgrammesBySchool(next);
+    Promise.all([loadProgrammesBySchool(), loadAcademicSessions()])
+      .then(([nextProgrammes, nextSessions]) => {
+        if (cancelled) return;
+        setProgrammesBySchool(nextProgrammes);
+        setSessionChoices(nextSessions);
       })
       .catch(() => {
         // The bundled school lists still drive the dropdowns if the catalog query fails.
@@ -91,14 +93,10 @@ export const SearchArchiveScreen: React.FC = () => {
   const [showFacultyModal, setShowFacultyModal] = useState(false);
   const [showProgrammeModal, setShowProgrammeModal] = useState(false);
   const [showSessionModal, setShowSessionModal] = useState(false);
-  const [sortAscending, setSortAscending] = useState(true);
-  const [requestSuccessModal, setRequestSuccessModal] = useState<ArchivedExaminationRecord | null>(null);
-  const [results, setResults] = useState<ArchivedExaminationRecord[]>([]);
-  const [searched, setSearched] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
 
-  const runSearch = async (recordHistory = true) => {
+  const runSearch = async () => {
     if (!hasActiveBookletFilter(searchFilter)) {
       setSearchError(BOOKLET_COPY.emptyFilter);
       Alert.alert(BOOKLET_COPY.emptyFilterTitle, BOOKLET_COPY.emptyFilter);
@@ -107,37 +105,15 @@ export const SearchArchiveScreen: React.FC = () => {
     setSearching(true);
     setSearchError('');
     try {
-      if (recordHistory) {
-        logSearch(
-          searchFilter.unitCode,
-          searchFilter.unitName || searchFilter.studentName,
-          searchFilter.faculty
-        );
-      }
+      logSearch(
+        searchFilter.unitCode,
+        searchFilter.unitName || searchFilter.studentName,
+        searchFilter.faculty
+      );
       navigation.navigate('LecturerSearchResults', { filter: { ...searchFilter } });
     } finally {
       setSearching(false);
     }
-  };
-
-  const filteredRecords = results;
-
-  const sortedRecords = [...filteredRecords].sort((a, b) => {
-    return sortAscending
-      ? a.studentName.localeCompare(b.studentName)
-      : b.studentName.localeCompare(a.studentName);
-  });
-
-  const handleRequest = async (record: ArchivedExaminationRecord) => {
-    const error = await requestBooklet(record.id);
-    if (error) {
-      Alert.alert('Request failed', error);
-      return;
-    }
-    setRequestSuccessModal(record);
-    setResults((current) =>
-      current.map((row) => (row.id === record.id ? { ...row, isRequested: true } : row))
-    );
   };
 
   return (
@@ -239,6 +215,7 @@ export const SearchArchiveScreen: React.FC = () => {
               value={searchFilter.admissionNumber}
               onChangeText={(txt) => setSearchFilter((p) => ({ ...p, admissionNumber: txt }))}
               placeholder="e.g., CIT/00452/2021"
+              optional
               styles={styles}
             />
 
@@ -276,104 +253,7 @@ export const SearchArchiveScreen: React.FC = () => {
             <Text style={styles.infoNoteText}>{SEARCH_COPY.info}</Text>
           </View>
 
-          {searched ? (
-            <View style={styles.resultsHeaderRow}>
-              <View style={styles.foundBadge}>
-                <Text style={styles.foundBadgeText}>{filteredRecords.length} Found</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.sortButton}
-                onPress={() => setSortAscending((prev) => !prev)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Sort results"
-              >
-                <MaterialCommunityIcons name="sort" size={16} color={colors.muted} />
-                <Text style={styles.sortButtonText}>Sort</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
-
           {searchError ? <Text style={styles.emptyText}>{searchError}</Text> : null}
-          {searched && !searching && !searchError && sortedRecords.length === 0 ? (
-            <Text style={styles.emptyText}>No examination records found</Text>
-          ) : null}
-
-          {searched
-            ? sortedRecords.map((record) => (
-                <TouchableOpacity
-                  key={record.id}
-                  style={styles.recordCard}
-                  activeOpacity={0.9}
-                  onPress={() =>
-                    logSearch(record.courseCode, record.courseName, record.faculty || record.session)
-                  }
-                >
-                  <View style={styles.recordTopRow}>
-                    <View style={styles.recordBadgesLeft}>
-                      <View style={styles.courseCodePill}>
-                        <Text style={styles.courseCodePillText}>{record.courseCode}</Text>
-                      </View>
-
-                      <View style={styles.originalBookletPill}>
-                        <MaterialIcons name="check" size={13} color="#166534" />
-                        <Text style={styles.originalBookletPillText}>Original Booklet</Text>
-                      </View>
-                    </View>
-
-                    <Text style={styles.sessionDateText}>{record.session}</Text>
-                  </View>
-
-                  <Text style={styles.recordCourseName}>{record.courseName}</Text>
-                  {record.programme ? <Text style={styles.candidateText}>{record.programme}</Text> : null}
-
-                  <View style={styles.candidateRow}>
-                    <Feather name="user" size={14} color={colors.muted} />
-                    <Text style={styles.candidateText}>
-                      {record.studentName} • {record.admissionNumber}
-                    </Text>
-                  </View>
-
-                  <View style={styles.coordinateContainer}>
-                    <MaterialCommunityIcons
-                      name="archive-arrow-down-outline"
-                      size={16}
-                      color={colors.muted}
-                      style={styles.coordIcon}
-                    />
-                    <View style={styles.coordContent}>
-                      <Text style={styles.coordLabel}>Physical Storage Coordinate</Text>
-                      <Text style={styles.coordCoordinates}>
-                        {record.shelf} → {record.rack} → {record.box} → {record.pos}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.recordFooterRow}>
-                    <View style={styles.vaultVerifiedTag}>
-                      <MaterialIcons name="check" size={14} color="#15803D" />
-                      <Text style={styles.vaultVerifiedText}>
-                        {record.isRequested ? 'Staged in Vault' : 'Verified in Vault'}
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.requestBookletBtn,
-                        record.isRequested && styles.requestBookletBtnDisabled,
-                      ]}
-                      onPress={() => handleRequest(record)}
-                      disabled={record.isRequested}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.requestBookletBtnText}>
-                        {record.isRequested ? 'Requested' : 'Request Booklet'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              ))
-            : null}
         </ScrollView>
 
       <Modal visible={showFacultyModal} transparent animationType="slide">
@@ -492,36 +372,6 @@ export const SearchArchiveScreen: React.FC = () => {
               onPress={() => setShowSessionModal(false)}
             >
               <Text style={styles.modalCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={!!requestSuccessModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRequestSuccessModal(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.successModalCard}>
-            <View style={styles.successIconCircle}>
-              <MaterialIcons name="check" size={32} color="#15803D" />
-            </View>
-            <Text style={styles.successModalTitle}>Booklet Requested Successfully</Text>
-            <Text style={styles.successModalMessage}>
-              Examination booklet for candidate{' '}
-              <Text style={{ fontWeight: '700' }}>{requestSuccessModal?.studentName}</Text> (
-              {requestSuccessModal?.courseCode}) is now staged in Central Vault.
-            </Text>
-            <Text style={styles.successModalCoordinate}>
-              Location: {requestSuccessModal?.shelf} → {requestSuccessModal?.box}
-            </Text>
-            <TouchableOpacity
-              style={styles.successModalBtn}
-              onPress={() => setRequestSuccessModal(null)}
-            >
-              <Text style={styles.successModalBtnText}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -808,6 +658,27 @@ function createSearchStyles(palette: Palette) {
       fontSize: control.body,
       fontWeight: '700',
       color: tokens.onPrimary,
+      fontFamily: typography.fontFamilySans,
+    },
+    scanSubmitBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: tokens.surfaceContainerLowest,
+      borderRadius: borderRadius.button,
+      minHeight: control.inputHeight,
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+      borderWidth: 1.5,
+      borderColor: tokens.primary,
+    },
+    scanSubmitBtnPressed: {
+      backgroundColor: tokens.primaryContainer,
+    },
+    scanSubmitBtnText: {
+      fontSize: control.body,
+      fontWeight: '700',
+      color: tokens.primary,
       fontFamily: typography.fontFamilySans,
     },
     infoNote: {

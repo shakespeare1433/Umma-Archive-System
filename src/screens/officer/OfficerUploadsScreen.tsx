@@ -9,13 +9,11 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useAuth } from '../../context/AuthContext';
 import { listOfficerUploads } from '../../services/bookletService';
 import { Booklet } from '../../types';
 import { borderRadius, colors as tokens, spacing } from '../../theme';
 
 type UploadFilter = 'all' | 'uploaded' | 'processing' | 'failed';
-type UploadStatus = 'uploaded' | 'processing' | 'failed';
 
 const FILTERS: { key: UploadFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -24,314 +22,200 @@ const FILTERS: { key: UploadFilter; label: string }[] = [
   { key: 'failed', label: 'Failed' },
 ];
 
-function statusOf(item: Booklet): UploadStatus {
-  if (item.digitised || item.pdfPath) return 'uploaded';
-  return 'processing';
+function statusOf(item: Booklet): Exclude<UploadFilter, 'all'> {
+  if (item.digitised && item.pdfPath) return 'uploaded';
+  if (item.pdfPath) return 'processing';
+  return 'failed';
 }
 
 function isToday(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return false;
   const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
+  return date.toDateString() === now.toDateString();
 }
 
-function formatWhen(iso: string, today: boolean) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  if (today) {
-    return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-  }
-  return date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
-}
-
-function bookletTitle(item: Booklet) {
-  const name = item.unitName.replace(new RegExp(`^${item.unitCode}\\s*[:·-]?\\s*`, 'i'), '');
-  return `${item.unitCode} · ${name}`.trim();
-}
-
-export const OfficerUploadsScreen: React.FC = () => {
-  const { user } = useAuth();
-  const [rows, setRows] = useState<Booklet[]>([]);
+export const OfficerUploadsScreen: React.FC<{
+  onScan?: () => void;
+}> = ({ onScan }) => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<UploadFilter>('all');
+  const [rows, setRows] = useState<Booklet[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (soft = false) => {
+    if (soft) setRefreshing(true);
+    setError('');
     try {
-      const list = await listOfficerUploads();
-      const mine = user?.id ? list.filter((item) => !item.uploadedBy || item.uploadedBy === user.id) : list;
-      setRows(mine);
-      setError('');
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Uploads could not be loaded.');
-      setRows([]);
+      setRows(await listOfficerUploads());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Uploads could not be loaded.');
+    } finally {
+      setRefreshing(false);
     }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const counts = useMemo(() => {
-    const uploaded = rows.filter((item) => statusOf(item) === 'uploaded').length;
-    const processing = rows.filter((item) => statusOf(item) === 'processing').length;
-    const failed = rows.filter((item) => statusOf(item) === 'failed').length;
-    return { all: rows.length, uploaded, processing, failed };
-  }, [rows]);
-
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const needle = query.trim().toLowerCase();
     return rows.filter((item) => {
       const status = statusOf(item);
       if (filter !== 'all' && status !== filter) return false;
-      if (!q) return true;
+      if (!needle) return true;
       return (
-        item.unitCode.toLowerCase().includes(q) ||
-        item.unitName.toLowerCase().includes(q) ||
-        item.registrationNo.toLowerCase().includes(q)
+        item.unitCode.toLowerCase().includes(needle) ||
+        item.unitName.toLowerCase().includes(needle) ||
+        item.registrationNo.toLowerCase().includes(needle) ||
+        item.studentName.toLowerCase().includes(needle)
       );
     });
-  }, [rows, query, filter]);
+  }, [filter, query, rows]);
 
   const today = visible.filter((item) => isToday(item.createdAt));
   const earlier = visible.filter((item) => !isToday(item.createdAt));
 
   return (
     <View style={styles.stage}>
+      <TextInput
+        style={styles.search}
+        value={query}
+        onChangeText={setQuery}
+        placeholder="Search unit, code, or registration"
+        placeholderTextColor={tokens.placeholder}
+      />
+      <View style={styles.chips}>
+        {FILTERS.map((item) => {
+          const on = filter === item.key;
+          const count =
+            item.key === 'all' ? rows.length : rows.filter((row) => statusOf(row) === item.key).length;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.chip, on && styles.chipOn]}
+              onPress={() => setFilter(item.key)}
+            >
+              <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                {item.key === 'all' ? `All · ${count}` : item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await load();
-              setRefreshing(false);
-            }}
-          />
-        }
+        contentContainerStyle={styles.page}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} />}
       >
-        <Text style={styles.title}>Uploads</Text>
-        <Text style={styles.subtitle}>Booklets you have scanned and archived</Text>
-
-        <View style={styles.search}>
-          <Feather name="search" size={16} color={tokens.placeholder} />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search by unit, code or reg. no."
-            placeholderTextColor={tokens.placeholder}
-          />
-        </View>
-
-        <View style={styles.filters}>
-          {FILTERS.map((item) => {
-            const on = filter === item.key;
-            const count = counts[item.key];
-            return (
-              <TouchableOpacity
-                key={item.key}
-                style={[styles.chip, on && styles.chipOn]}
-                onPress={() => setFilter(item.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-              >
-                <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                  {item.key === 'all' ? `All · ${count}` : item.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
         {error ? <Text style={styles.error}>{error}</Text> : null}
-
         {visible.length === 0 ? (
-          <Text style={styles.empty}>
-            {rows.length === 0
-              ? 'No uploads yet.'
-              : 'No matching uploads.'}
-          </Text>
+          <Text style={styles.empty}>No uploads yet. Archive a scanned PDF to add it here.</Text>
         ) : null}
-
         {today.length > 0 ? (
           <View style={styles.group}>
             <Text style={styles.groupLabel}>TODAY</Text>
             {today.map((item) => (
-              <UploadCard key={item.id} item={item} today onRetry={() => void load()} />
+              <UploadCard key={item.id} item={item} />
             ))}
           </View>
         ) : null}
-
         {earlier.length > 0 ? (
           <View style={styles.group}>
             <Text style={styles.groupLabel}>EARLIER</Text>
             {earlier.map((item) => (
-              <UploadCard key={item.id} item={item} today={false} onRetry={() => void load()} />
+              <UploadCard key={item.id} item={item} />
             ))}
           </View>
         ) : null}
       </ScrollView>
-    </View>
-  );
-};
-
-function UploadCard({
-  item,
-  today,
-  onRetry,
-}: {
-  item: Booklet;
-  today: boolean;
-  onRetry: () => void;
-}) {
-  const status = statusOf(item);
-  const when = formatWhen(item.createdAt, today);
-  const reg = item.registrationNo || 'No reg. no.';
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardRow}>
-        <View style={styles.fileIcon}>
-          <Feather name="file-text" size={18} color={tokens.secondary} />
-        </View>
-        <View style={styles.cardCopy}>
-          <Text style={styles.cardTitle} numberOfLines={2}>
-            {bookletTitle(item)}
-          </Text>
-          <Text style={styles.cardMeta} numberOfLines={1}>
-            {reg}
-            {when ? ` · ${when}` : ''}
-          </Text>
-        </View>
-        <StatusChip status={status} />
-      </View>
-      {status === 'processing' ? (
-        <View style={styles.progress}>
-          <View style={styles.progressFill} />
-        </View>
-      ) : null}
-      {status === 'failed' ? (
-        <TouchableOpacity style={styles.retry} onPress={onRetry} activeOpacity={0.85}>
-          <Feather name="refresh-ccw" size={14} color={tokens.error} />
-          <Text style={styles.retryText}>Retry upload</Text>
+      {onScan ? (
+        <TouchableOpacity style={styles.scan} onPress={onScan} activeOpacity={0.85}>
+          <Feather name="upload" size={16} color={tokens.onPrimary} />
+          <Text style={styles.scanText}>Scan & upload booklet</Text>
         </TouchableOpacity>
       ) : null}
     </View>
   );
-}
+};
 
-function StatusChip({ status }: { status: UploadStatus }) {
-  const tone =
-    status === 'uploaded'
-      ? { bg: tokens.statusVerifiedBg, fg: tokens.statusVerifiedText, label: 'Uploaded' }
-      : status === 'failed'
-        ? { bg: tokens.errorContainer, fg: tokens.error, label: 'Failed' }
-        : { bg: tokens.statusNoticeBlueBg, fg: tokens.statusNoticeBlue, label: 'Processing' };
+function UploadCard({ item }: { item: Booklet }) {
+  const status = statusOf(item);
   return (
-    <View style={[styles.status, { backgroundColor: tone.bg }]}>
-      <Text style={[styles.statusText, { color: tone.fg }]}>{tone.label}</Text>
+    <View style={styles.card}>
+      <View style={styles.cardTop}>
+        <Text style={styles.code}>{item.unitCode}</Text>
+        <Text style={[styles.badge, status === 'uploaded' ? styles.ok : status === 'processing' ? styles.wait : styles.fail]}>
+          {status === 'uploaded' ? 'Uploaded' : status === 'processing' ? 'Processing' : 'Failed'}
+        </Text>
+      </View>
+      <Text style={styles.title}>{item.unitName}</Text>
+      <Text style={styles.meta}>
+        {item.studentName} · {item.registrationNo}
+      </Text>
+      <Text style={styles.meta}>{item.academicSession}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   stage: { flex: 1, backgroundColor: tokens.background },
-  content: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: 28 },
-  title: { fontSize: 26, fontWeight: '800', color: tokens.onSurface },
-  subtitle: { marginTop: 4, marginBottom: 14, fontSize: 13, color: tokens.onSurfaceVariant },
   search: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
     height: 46,
-    borderRadius: borderRadius.pill,
-    backgroundColor: tokens.surfaceContainerLowest,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: tokens.inputBorder,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  searchInput: { flex: 1, fontSize: 14, color: tokens.onSurface, paddingVertical: 0 },
-  filters: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  chip: {
-    borderRadius: borderRadius.pill,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: tokens.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: tokens.inputBorder,
+    color: tokens.onSurface,
   },
-  chipOn: {
-    backgroundColor: tokens.primary,
-    borderColor: tokens.primary,
+  chips: { flexDirection: 'row', gap: 8, paddingHorizontal: spacing.md, paddingTop: 12 },
+  chip: {
+    flex: 1,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: tokens.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  chipText: { fontSize: 12, fontWeight: '700', color: tokens.onSurfaceVariant },
+  chipOn: { backgroundColor: tokens.primary },
+  chipText: { fontSize: 11, fontWeight: '700', color: tokens.onSurfaceVariant },
   chipTextOn: { color: tokens.onPrimary },
-  error: { marginTop: 12, color: tokens.error, fontSize: 12, fontWeight: '600' },
-  empty: { marginTop: 18, color: tokens.onSurfaceVariant, fontSize: 13, lineHeight: 18 },
-  group: { marginTop: 18 },
-  groupLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: tokens.outline,
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
+  page: { padding: spacing.md, paddingBottom: 90 },
+  group: { marginBottom: 16 },
+  groupLabel: { fontSize: 11, fontWeight: '800', color: tokens.onSurfaceVariant, marginBottom: 8 },
+  empty: { color: tokens.onSurfaceVariant, lineHeight: 20 },
+  error: { color: tokens.error, fontWeight: '600', marginBottom: 10 },
   card: {
     backgroundColor: tokens.surfaceContainerLowest,
     borderRadius: borderRadius.lg,
-    padding: 14,
+    padding: 12,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: tokens.inputBorder,
-    shadowColor: '#1B2744',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
-  cardRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  fileIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardCopy: { flex: 1 },
-  cardTitle: { fontSize: 14, fontWeight: '800', color: tokens.onSurface },
-  cardMeta: { marginTop: 3, fontSize: 12, color: tokens.onSurfaceVariant },
-  status: { borderRadius: borderRadius.pill, paddingHorizontal: 8, paddingVertical: 4 },
-  statusText: { fontSize: 11, fontWeight: '700' },
-  progress: {
-    marginTop: 12,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: tokens.surfaceContainer,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    width: '72%',
-    height: 4,
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  code: { fontSize: 12, fontWeight: '800', color: tokens.secondary },
+  title: { marginTop: 4, fontSize: 15, fontWeight: '800', color: tokens.onSurface },
+  meta: { marginTop: 4, fontSize: 12, color: tokens.onSurfaceVariant },
+  badge: { fontSize: 11, fontWeight: '800', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
+  ok: { backgroundColor: '#DCFCE7', color: '#166534' },
+  wait: { backgroundColor: '#FEF3C7', color: '#92400E' },
+  fail: { backgroundColor: '#FEE2E2', color: '#B91C1C' },
+  scan: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+    height: 48,
+    borderRadius: borderRadius.pill,
     backgroundColor: tokens.primary,
-  },
-  retry: {
-    marginTop: 12,
-    height: 42,
-    borderRadius: borderRadius.md,
-    backgroundColor: tokens.errorContainer,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
-  retryText: { color: tokens.error, fontWeight: '700', fontSize: 13 },
+  scanText: { color: tokens.onPrimary, fontWeight: '800' },
 });

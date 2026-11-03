@@ -170,8 +170,38 @@ export const LecturerHistoryScreen: React.FC<Props> = () => {
                 <Text style={styles.detailLabel}>Status</Text>
                 <Text style={styles.detailValue}>{detailRequest?.officerStatus || detail?.vaultStatus || 'Searched'}</Text>
               </View>
+              {detailRequest?.requestKind ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Request type</Text>
+                  <Text style={styles.detailValue}>
+                    {detailRequest.requestKind === 'MISSING_PDF_INVESTIGATION'
+                      ? 'Missing PDF investigation'
+                      : 'Physical booklet'}
+                  </Text>
+                </View>
+              ) : null}
+              {detailRequest?.officerNote ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Officer feedback</Text>
+                  <Text style={styles.detailValue}>{detailRequest.officerNote}</Text>
+                </View>
+              ) : null}
+              {detailRequest?.lecturerNote ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Your request</Text>
+                  <Text style={styles.detailValue}>{detailRequest.lecturerNote}</Text>
+                </View>
+              ) : null}
+              {detailRequest?.updatedAt ? (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Response date</Text>
+                  <Text style={styles.detailValue}>
+                    {new Date(detailRequest.updatedAt).toLocaleString()}
+                  </Text>
+                </View>
+              ) : null}
               <View style={[styles.detailRow, styles.detailRowLast]}>
-                <Text style={styles.detailLabel}>Location</Text>
+                <Text style={styles.detailLabel}>Physical location</Text>
                 <Text style={styles.detailValue}>{locationText()}</Text>
               </View>
             </View>
@@ -294,7 +324,7 @@ export const LecturerHistoryScreen: React.FC<Props> = () => {
 
 function bookletPlace(request: ActiveRetrievalRequest) {
   const shelf = request.shelfLocation?.trim() || '';
-  const extra = [request.rack, request.box].flatMap((part) => {
+  const extra = [request.rack, request.box, request.position].flatMap((part) => {
     const value = part?.trim();
     if (!value || shelf.includes(value)) return [];
     return [value];

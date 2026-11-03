@@ -1,10 +1,21 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-declare const process: { env: Record<string, string | undefined> };
+const extra = (Constants.expoConfig?.extra ?? {}) as {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+};
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const url =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  extra.supabaseUrl ||
+  'https://vrwmhxxhwrbbdrsvrhhc.supabase.co';
+
+const anonKey =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  extra.supabaseAnonKey ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyd21oeHhod3JiYmRyc3ZyaGhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQ5ODgsImV4cCI6MjEwNzA0MDk4OH0.954RYtx7SkK07KHceXq8UB_S066yHRq7jVI5F_ZsLI4';
 
 let client: SupabaseClient | null = null;
 
@@ -14,9 +25,7 @@ export function isSupabaseConfigured(): boolean {
 
 export function getSupabase(): SupabaseClient {
   if (!url || !anonKey) {
-    throw new Error(
-      'Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY, run supabase/schema.sql, then create the administrator with node scripts/provision-admin.mjs.'
-    );
+    throw new Error('Supabase is not configured.');
   }
   if (!client) {
     client = createClient(url, anonKey, {

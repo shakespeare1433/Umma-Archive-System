@@ -9,6 +9,7 @@ import {
   Pressable,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -24,6 +25,7 @@ import {
   shareBookletFile,
 } from '../../services/bookletService';
 import { Booklet, BookletSort, RootStackParamList } from '../../types';
+import { useVault } from '../../context/VaultContext';
 import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LecturerSearchResults'>;
@@ -39,10 +41,13 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
   const palette = lecturerPalette(theme);
   const styles = useMemo(() => createStyles(palette), [theme]);
   const search = useBookletSearch(route.params.filter);
+  const { requestMissingBooklet } = useVault();
   const [sortOpen, setSortOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState('');
+  const [reason, setReason] = useState('');
+  const [requesting, setRequesting] = useState(false);
 
   const readyPdfs = search.items.filter((item) => item.digitised && item.pdfPath);
 
@@ -130,13 +135,41 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
           <MaterialCommunityIcons name="file-search-outline" size={56} color={tokens.secondary} />
           <Text style={styles.emptyTitle}>{BOOKLET_COPY.emptyTitle}</Text>
           <Text style={styles.emptyBody}>{BOOKLET_COPY.emptyBody}</Text>
+          <TextInput
+            style={styles.reasonInput}
+            value={reason}
+            onChangeText={setReason}
+            placeholder={BOOKLET_COPY.requestReasonHint}
+            placeholderTextColor={palette.muted}
+            multiline
+          />
           <TouchableOpacity
             style={styles.primaryBtn}
+            onPress={() => {
+              setRequesting(true);
+              void requestMissingBooklet(route.params.filter, reason)
+                .then((failed) => {
+                  showToast(failed ?? BOOKLET_COPY.requestSent);
+                })
+                .finally(() => setRequesting(false));
+            }}
+            disabled={requesting}
+            accessibilityRole="button"
+            accessibilityLabel={BOOKLET_COPY.requestOfficer}
+          >
+            {requesting ? (
+              <ActivityIndicator color={tokens.onPrimary} />
+            ) : (
+              <Text style={styles.primaryBtnText}>{BOOKLET_COPY.requestOfficer}</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryBtn}
             onPress={() => navigation.goBack()}
             accessibilityRole="button"
             accessibilityLabel={BOOKLET_COPY.changeFilters}
           >
-            <Text style={styles.primaryBtnText}>{BOOKLET_COPY.changeFilters}</Text>
+            <Text style={styles.secondaryBtnText}>{BOOKLET_COPY.changeFilters}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -149,7 +182,15 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
             <BookletResultCard
               booklet={item}
               downloading={downloadingId === item.id}
-              onPress={() => navigation.navigate('LecturerBookletDetails', { bookletId: item.id })}
+              onPress={() =>
+                navigation.navigate('LecturerBookletDetails', {
+                  bookletId: item.id,
+                  startPage: item.startPage ?? undefined,
+                  endPage: item.endPage ?? undefined,
+                  studentName: item.studentName,
+                  registrationNo: item.registrationNo,
+                })
+              }
               onDownload={() => {
                 void saveOne(item);
               }}
@@ -289,6 +330,34 @@ function createStyles(palette: ReturnType<typeof lecturerPalette>) {
       fontSize: control.subtitle,
       color: palette.muted,
       textAlign: 'center',
+    },
+    reasonInput: {
+      width: '100%',
+      minHeight: 88,
+      marginTop: spacing.sm,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: palette.line,
+      backgroundColor: palette.card,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      color: palette.ink,
+      textAlignVertical: 'top',
+    },
+    secondaryBtn: {
+      minHeight: control.inputHeight,
+      borderRadius: borderRadius.button,
+      borderWidth: 1.5,
+      borderColor: tokens.secondary,
+      paddingHorizontal: spacing.lg,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: palette.card,
+    },
+    secondaryBtnText: {
+      color: tokens.secondary,
+      fontWeight: '700',
+      fontSize: control.body,
     },
     primaryBtn: {
       marginTop: spacing.md,

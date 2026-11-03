@@ -95,6 +95,7 @@ export function noticeKindFromText(title: string, body: string): 'sent' | 'pendi
   const text = `${title} ${body}`.toLowerCase();
   if (/fulfilled|completed|complete|dispatched|checked out/.test(text)) return 'completed';
   if (/request sent|was sent|\bis now sent\b/.test(text)) return 'sent';
+  if (/location found|physically located|\bis now located\b/.test(text)) return 'updated';
   if (/pending|received|waiting/.test(text)) return 'pending';
   return 'updated';
 }
@@ -112,6 +113,7 @@ export function labelForNotice(title: string, body: string) {
   if (kind === 'completed') return 'Completed';
   if (kind === 'pending') return 'Pending';
   if (kind === 'sent') return 'Sent';
+  if (/location found|located/.test(`${title} ${body}`.toLowerCase())) return 'Located';
   return 'Updated';
 }
 
@@ -120,6 +122,7 @@ export function iconForNotice(title: string, body: string): NoticeIcon {
   if (kind === 'completed') return 'check-circle';
   if (kind === 'pending') return 'clock';
   if (kind === 'sent') return 'send';
+  if (/location found|located/.test(`${title} ${body}`.toLowerCase())) return 'map-pin';
   return 'refresh-cw';
 }
 

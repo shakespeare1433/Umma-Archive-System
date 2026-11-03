@@ -12,6 +12,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   CoordChip,
   SHELF_OPTIONS,
+  TRACER_FILTERS,
   TracerFilter,
   TracerRequest,
   TracerStatus,
@@ -23,7 +24,7 @@ const GREEN = '#17803D';
 export const OfficerTracerScreen: React.FC<{
   filter: TracerFilter;
   onFilter: (filter: TracerFilter) => void;
-}> = ({ filter }) => {
+}> = ({ filter, onFilter }) => {
   const { tracers, flash, clearFlash, locateTracer, moveTracerShelf, verifyTracer, reload } = useCustody();
   const [movingId, setMovingId] = useState<string | null>(null);
   const visible = tracers.filter((item) => filter === 'All Requests' || item.status === filter);
@@ -39,6 +40,30 @@ export const OfficerTracerScreen: React.FC<{
 
   return (
     <View style={styles.fill}>
+      <View style={styles.filterBar}>
+        {TRACER_FILTERS.map((item) => {
+          const on = filter === item;
+          const count =
+            item === 'All Requests'
+              ? tracers.length
+              : tracers.filter((row) => row.status === item).length;
+          return (
+            <TouchableOpacity
+              key={item}
+              style={[styles.filter, on && styles.filterOn]}
+              onPress={() => onFilter(item)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={`${item}, ${count}`}
+            >
+              <Text style={[styles.filterText, on && styles.filterTextOn]} numberOfLines={1}>
+                {item === 'All Requests' ? 'All' : item} ({count})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       <ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
         <View style={styles.registryRow}>
           <Text style={styles.registry}>ACTIVE TRACER REGISTRY</Text>
@@ -228,23 +253,32 @@ function CoordBox({ chip }: { chip: CoordChip }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: '#F4F7FB' },
-  page: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 24 },
+  filterBar: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+    backgroundColor: '#F4F7FB',
+  },
+  page: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 24 },
   registryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   registry: { flex: 1, fontSize: 11, fontWeight: '800', color: '#64748B', letterSpacing: 0.4 },
   activePill: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#22C55E' },
   activeText: { color: '#16A34A', fontSize: 12, fontWeight: '700' },
-  filters: { gap: 8, paddingVertical: 12 },
   filter: {
+    flex: 1,
     borderRadius: 999,
-    paddingHorizontal: 14,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    alignItems: 'center',
   },
   filterOn: { backgroundColor: '#111827', borderColor: '#111827' },
-  filterText: { fontSize: 13, fontWeight: '700', color: '#475569' },
+  filterText: { fontSize: 12, fontWeight: '700', color: '#475569' },
   filterTextOn: { color: '#FFFFFF' },
   traced: { textAlign: 'right', color: '#94A3B8', fontSize: 12, marginBottom: 10 },
   tracedName: { color: '#334155', fontWeight: '700' },

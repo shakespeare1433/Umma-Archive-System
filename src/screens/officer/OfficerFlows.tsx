@@ -102,8 +102,16 @@ export const OfficerRequestDetailScreen: React.FC<{
   onVerify: () => void;
   onRetrieve: () => void;
 }> = ({ id, onBack, onVerify, onRetrieve }) => {
-  const { requests } = useCustody();
+  const { requests, respondToRequest } = useCustody();
   const request = requests.find((item) => item.id === id);
+  const [status, setStatus] = useState(request?.officerStatus || 'Pending');
+  const [note, setNote] = useState(request?.officerNote || '');
+  const [shelf, setShelf] = useState(request?.shelf || '');
+  const [rack, setRack] = useState(request?.rack || '');
+  const [box, setBox] = useState(request?.box || '');
+  const [position, setPosition] = useState(request?.position || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   if (!request) {
     return (
@@ -114,29 +122,115 @@ export const OfficerRequestDetailScreen: React.FC<{
     );
   }
 
+  const kindLabel =
+    request.requestKind === 'MISSING_PDF_INVESTIGATION'
+      ? 'Missing PDF investigation'
+      : 'Physical booklet request';
+
   return (
     <View style={styles.fill}>
       <BackBar title={request.ref} onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page}>
+      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
         <View style={styles.panel}>
           <Text style={styles.kicker}>{request.unitCode}</Text>
           <Text style={styles.panelTitle}>{request.unitTitle}</Text>
+          <Row label="Request type" value={kindLabel} />
           <Row label="Lecturer" value={request.lecturer} />
-          <Row label="School" value={request.school} />
-          <Row label="Booklets" value={String(request.booklets)} />
-          <Row label="Status" value={request.status} />
-          {request.shelf ? <Row label="Shelf" value={`${request.shelf} • ${request.rack}`} /> : null}
-          {request.box ? <Row label="Box" value={request.box} /> : null}
-          {request.moderationLabel ? <Row label="Dispatch" value={request.moderationLabel} /> : null}
+          <Row label="Student" value={request.studentName || 'Not recorded'} />
+          <Row label="Registration" value={request.registrationNo || 'Not recorded'} />
+          <Row label="School" value={request.school || 'Not recorded'} />
+          <Row label="Programme" value={request.programme || 'Not recorded'} />
+          <Row label="Academic Session" value={request.session || 'Not recorded'} />
+          <Row label="Unit" value={`${request.unitCode} · ${request.unitTitle}`} />
+          <Row label="Requested" value={new Date(request.createdAt).toLocaleString()} />
+          <Row label="Status" value={request.officerStatus || request.status} />
+          {request.lecturerNote ? <Row label="Lecturer reason" value={request.lecturerNote} /> : null}
+          {request.shelf ? <Row label="Shelf on record" value={request.shelf} /> : null}
+          {request.rack ? <Row label="Rack on record" value={request.rack} /> : null}
+          {request.box ? <Row label="Box on record" value={request.box} /> : null}
+          {request.position ? <Row label="Position on record" value={request.position} /> : null}
+        </View>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Physical location feedback</Text>
+          <Text style={styles.sub}>
+            Locate the original physical booklet and send the exact storage details to the lecturer.
+            Locating the booklet does not mark it as collected.
+          </Text>
+          {['Pending', 'Received', 'Located', 'Ready for Collection', 'Not Located', 'Fulfilled'].map((option) => (
+            <TouchableOpacity
+              key={option}
+              style={[styles.pick, status === option && styles.pickOn]}
+              onPress={() => setStatus(option)}
+            >
+              <Text style={styles.pickTitle}>{option}</Text>
+            </TouchableOpacity>
+          ))}
+          <TextInput
+            style={styles.input}
+            value={shelf}
+            onChangeText={setShelf}
+            placeholder="Shelf"
+            placeholderTextColor="#94A3B8"
+          />
+          <TextInput
+            style={styles.input}
+            value={rack}
+            onChangeText={setRack}
+            placeholder="Rack"
+            placeholderTextColor="#94A3B8"
+          />
+          <TextInput
+            style={styles.input}
+            value={box}
+            onChangeText={setBox}
+            placeholder="Box"
+            placeholderTextColor="#94A3B8"
+          />
+          <TextInput
+            style={styles.input}
+            value={position}
+            onChangeText={setPosition}
+            placeholder="Position"
+            placeholderTextColor="#94A3B8"
+          />
+          <TextInput
+            style={[styles.input, { height: 90, textAlignVertical: 'top' }]}
+            value={note}
+            onChangeText={setNote}
+            placeholder="Feedback or collection instructions for the lecturer"
+            placeholderTextColor="#94A3B8"
+            multiline
+          />
+          {error ? <Text style={styles.empty}>{error}</Text> : null}
+          <TouchableOpacity
+            style={styles.primary}
+            disabled={saving}
+            onPress={() => {
+              setSaving(true);
+              setError('');
+              void respondToRequest(request.id, {
+                officerStatus: status,
+                officerNote: note,
+                shelfLocation: shelf,
+                rack,
+                box,
+                position,
+              })
+                .catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not save the response.'))
+                .finally(() => setSaving(false));
+            }}
+          >
+            <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Send feedback to lecturer'}</Text>
+          </TouchableOpacity>
         </View>
         {request.status === 'In Progress' ? (
-          <TouchableOpacity style={styles.primary} onPress={onVerify}>
-            <Text style={styles.primaryText}>Verify Custody</Text>
+          <TouchableOpacity style={styles.secondary} onPress={onVerify}>
+            <Text style={styles.secondaryText}>Verify Custody</Text>
           </TouchableOpacity>
         ) : null}
         {request.status === 'Pending Review' ? (
-          <TouchableOpacity style={styles.primary} onPress={onRetrieve}>
-            <Text style={styles.primaryText}>Begin Vault Retrieval</Text>
+          <TouchableOpacity style={styles.secondary} onPress={onRetrieve}>
+            <Text style={styles.secondaryText}>Begin Vault Retrieval</Text>
           </TouchableOpacity>
         ) : null}
       </ScrollView>

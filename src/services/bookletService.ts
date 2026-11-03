@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { ALL_PROGRAMMES, ALL_SCHOOLS } from '../data/catalog';
+import { ALL_PROGRAMMES, ALL_SCHOOLS, schoolSearchNames } from '../data/catalog';
 import { getSupabase } from '../lib/supabase';
 import {
   ALL_SESSIONS,
@@ -30,7 +30,21 @@ interface BookletRow {
   digitised: boolean;
   uploaded_by: string | null;
   archive_id: string | null;
+  start_page?: number | null;
+  end_page?: number | null;
+  script_count?: number | null;
   created_at: string;
+}
+
+interface ScriptRow {
+  id: string;
+  booklet_id: string;
+  archive_id: string | null;
+  student_name: string;
+  registration_no: string;
+  start_page: number | null;
+  end_page: number | null;
+  booklets?: BookletRow | BookletRow[] | null;
 }
 
 export interface BookletSearchPage {
@@ -105,8 +119,81 @@ function fromRow(row: BookletRow): Booklet {
     digitised: row.digitised,
     uploadedBy: row.uploaded_by,
     archiveId: row.archive_id,
+    startPage: row.start_page,
+    endPage: row.end_page,
+    scriptCount: row.script_count,
     createdAt: row.created_at,
   };
+}
+
+function fromScript(script: ScriptRow, booklet: BookletRow): Booklet {
+  return {
+    ...fromRow(booklet),
+    studentName: script.student_name || booklet.student_name,
+    registrationNo: script.registration_no || booklet.registration_no,
+    startPage: script.start_page,
+    endPage: script.end_page,
+    archiveId: script.archive_id ?? booklet.archive_id,
+  };
+}
+
+async function searchBookletScripts(
+  filter: SearchFilterState,
+  options: { sort: BookletSort },
+  pageSize: number,
+  from: number,
+  to: number
+): Promise<BookletSearchPage | null> {
+  let query = getSupabase()
+    .from('booklet_scripts')
+    .select('id, booklet_id, archive_id, student_name, registration_no, start_page, end_page, booklets!inner(*)', {
+      count: 'exact',
+    });
+
+  const schools = schoolSearchNames(filter.faculty);
+  if (schools.length === 1) {
+    query = query.eq('booklets.school', schools[0]);
+  } else if (schools.length > 1) {
+    query = query.in('booklets.school', schools);
+  }
+  if (filter.programme && filter.programme !== ALL_PROGRAMMES) {
+    query = query.ilike('booklets.programme', `%${filter.programme.trim()}%`);
+  }
+  if (filter.session && filter.session !== ALL_SESSIONS) {
+    query = query.eq('booklets.academic_session', filter.session);
+  }
+  if (filter.unitCode.trim()) {
+    query = query.ilike('booklets.unit_code', `%${filter.unitCode.trim()}%`);
+  }
+  if (filter.unitName.trim()) {
+    query = query.ilike('booklets.unit_name', `%${filter.unitName.trim()}%`);
+  }
+  if (filter.studentName.trim()) {
+    query = query.ilike('student_name', `%${filter.studentName.trim()}%`);
+  }
+  if (filter.admissionNumber.trim()) {
+    query = query.ilike('registration_no', `%${filter.admissionNumber.trim()}%`);
+  }
+
+  if (options.sort === 'unit_code') {
+    query = query.order('unit_code', { referencedTable: 'booklets', ascending: true });
+  } else if (options.sort === 'session') {
+    query = query.order('academic_session', { referencedTable: 'booklets', ascending: false });
+  } else {
+    query = query.order('created_at', { referencedTable: 'booklets', ascending: false });
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) return null;
+
+  const rows = ((data ?? []) as ScriptRow[])
+    .map((script) => {
+      const booklet = firstRelated(script.booklets);
+      return booklet ? fromScript(script, booklet) : null;
+    })
+    .filter((row): row is Booklet => Boolean(row));
+
+  return { rows, total: count ?? rows.length };
 }
 
 export async function searchBooklets(
@@ -117,10 +204,16 @@ export async function searchBooklets(
   const from = options.page * pageSize;
   const to = from + pageSize - 1;
 
+  const scriptPage = await searchBookletScripts(filter, options, pageSize, from, to);
+  if (scriptPage) return scriptPage;
+
   let query = getSupabase().from('booklets').select('*', { count: 'exact' });
 
-  if (filter.faculty && filter.faculty !== ALL_SCHOOLS) {
-    query = query.eq('school', filter.faculty);
+  const schools = schoolSearchNames(filter.faculty);
+  if (schools.length === 1) {
+    query = query.eq('school', schools[0]);
+  } else if (schools.length > 1) {
+    query = query.in('school', schools);
   }
   if (filter.programme && filter.programme !== ALL_PROGRAMMES) {
     query = query.ilike('programme', `%${filter.programme.trim()}%`);
@@ -317,6 +410,22 @@ export function bookletObjectPath(input: {
   return `${session}/${unit}/${reg}.pdf`;
 }
 
+export function combinedBookletObjectPath(input: {
+  academicSession: string;
+  unitCode: string;
+}): string {
+  const session = sanitiseSegment(input.academicSession) || 'session';
+  const unit = sanitiseSegment(input.unitCode) || 'unit';
+  return `${session}/${unit}/combined-${Date.now()}.pdf`;
+}
+
+export interface BookletStudentScript {
+  studentName: string;
+  registrationNo: string;
+  startPage: number;
+  endPage: number;
+}
+
 export function bytesFromBase64(base64: string): Uint8Array {
   const clean = base64.replace(/\s/g, '');
   const binary = atob(clean);
@@ -337,15 +446,34 @@ export async function upsertBookletFromArchive(input: {
   registrationNo: string;
   studentName: string;
   pdfBytes?: Uint8Array;
+  students?: BookletStudentScript[];
+  pageCount?: number;
 }): Promise<void> {
   const { data: auth } = await getSupabase().auth.getUser();
+  const students = input.students?.length
+    ? input.students
+    : [
+        {
+          studentName: input.studentName,
+          registrationNo: input.registrationNo,
+          startPage: 1,
+          endPage: input.pageCount || 1,
+        },
+      ];
+  const first = students[0];
   let pdfPath: string | null = null;
   if (input.pdfBytes) {
-    pdfPath = bookletObjectPath({
-      academicSession: input.academicSession,
-      unitCode: input.unitCode,
-      registrationNo: input.registrationNo,
-    });
+    pdfPath =
+      students.length > 1
+        ? combinedBookletObjectPath({
+            academicSession: input.academicSession,
+            unitCode: input.unitCode,
+          })
+        : bookletObjectPath({
+            academicSession: input.academicSession,
+            unitCode: input.unitCode,
+            registrationNo: first.registrationNo,
+          });
     const { error } = await getSupabase().storage.from(BOOKLET_BUCKET).upload(pdfPath, input.pdfBytes, {
       contentType: 'application/pdf',
       upsert: true,
@@ -359,11 +487,15 @@ export async function upsertBookletFromArchive(input: {
     programme: input.programme,
     school: input.school,
     academic_session: input.academicSession,
-    registration_no: input.registrationNo,
-    student_name: input.studentName,
+    registration_no: first.registrationNo,
+    student_name: first.studentName,
     archive_id: input.archiveId,
     uploaded_by: auth.user?.id ?? null,
     digitised: Boolean(pdfPath),
+    script_count: students.length,
+    start_page: first.startPage,
+    end_page: first.endPage,
+    page_count: input.pageCount ?? students[students.length - 1]?.endPage ?? null,
   };
   if (pdfPath) {
     row.pdf_path = pdfPath;
@@ -375,11 +507,42 @@ export async function upsertBookletFromArchive(input: {
     .eq('archive_id', input.archiveId)
     .maybeSingle();
   if (existing.error) throw new Error(friendlyBookletError(existing.error));
-  if (existing.data?.id) {
-    const { error } = await getSupabase().from('booklets').update(row).eq('id', existing.data.id);
+
+  let bookletId = existing.data?.id as string | undefined;
+  if (bookletId) {
+    const { error } = await getSupabase().from('booklets').update(row).eq('id', bookletId);
     if (error) throw new Error(friendlyBookletError(error));
-    return;
+  } else {
+    const inserted = await getSupabase().from('booklets').upsert(row, { onConflict: 'archive_id' }).select('id').single();
+    if (inserted.error) throw new Error(friendlyBookletError(inserted.error));
+    bookletId = (inserted.data as { id: string } | null)?.id;
   }
-  const { error } = await getSupabase().from('booklets').upsert(row, { onConflict: 'archive_id' });
+
+  if (!bookletId) return;
+  await replaceBookletScripts(bookletId, input.archiveId, students);
+}
+
+async function replaceBookletScripts(
+  bookletId: string,
+  archiveId: string,
+  students: BookletStudentScript[]
+): Promise<void> {
+  const cleared = await getSupabase().from('booklet_scripts').delete().eq('booklet_id', bookletId);
+  if (cleared.error) {
+    if (cleared.error.message.toLowerCase().includes('booklet_scripts') || cleared.error.code === '42P01') {
+      return;
+    }
+    throw new Error(friendlyBookletError(cleared.error));
+  }
+  const { error } = await getSupabase().from('booklet_scripts').insert(
+    students.map((student) => ({
+      booklet_id: bookletId,
+      archive_id: archiveId,
+      student_name: student.studentName,
+      registration_no: student.registrationNo,
+      start_page: student.startPage,
+      end_page: student.endPage,
+    }))
+  );
   if (error) throw new Error(friendlyBookletError(error));
 }

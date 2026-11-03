@@ -9,9 +9,15 @@ import {
   VaultSettings,
   REQUEST_STEPS,
 } from '../types';
-import { ALL_PROGRAMMES, ALL_SCHOOLS } from '../data/catalog';
+import { ALL_PROGRAMMES, ALL_SCHOOLS, ALL_SEMESTERS, ALL_YEARS } from '../data/catalog';
 import { insertArchive, listArchives, updateArchive } from '../services/archiveService';
-import { deleteRequest, insertRequest, listRequests, updateRequest } from '../services/requestService';
+import {
+  deleteRequest,
+  findOpenRequest,
+  insertRequest,
+  listRequests,
+  updateRequest,
+} from '../services/requestService';
 import { clearOwnHistory, insertHistory, listHistory } from '../services/historyService';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../services/settingsService';
 import { useAuth } from './AuthContext';
@@ -28,7 +34,12 @@ interface VaultContextType {
   requestBooklet: (
     id: string,
     type?: RetrievalType,
-    record?: ArchivedExaminationRecord
+    record?: ArchivedExaminationRecord,
+    reason?: string
+  ) => Promise<string | null>;
+  requestMissingBooklet: (
+    filter: SearchFilterState,
+    reason: string
   ) => Promise<string | null>;
   advanceRequest: (id: string) => void;
   assignRequest: (id: string, custodian: string) => void;
@@ -47,17 +58,16 @@ const DEFAULT_FILTER: SearchFilterState = {
   faculty: ALL_SCHOOLS,
   programme: ALL_PROGRAMMES,
   session: ALL_SESSIONS,
+  academicYear: ALL_YEARS,
+  semester: ALL_SEMESTERS,
   unitCode: '',
   unitName: '',
+  bundleCode: '',
   studentName: '',
   admissionNumber: '',
 };
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
-
-function shelfLine(rec: ArchivedExaminationRecord) {
-  return `${rec.shelf} • ${rec.rack} • ${rec.box}`;
-}
 
 export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
@@ -134,33 +144,47 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const requestBooklet = async (
     id: string,
     type: RetrievalType = 'PHYSICAL RETRIEVAL',
-    record?: ArchivedExaminationRecord
+    record?: ArchivedExaminationRecord,
+    reason?: string
   ) => {
     if (!user) return 'You must be signed in.';
     if (user.role !== 'Lecturer') return 'Only a lecturer can request a booklet.';
     const rec = record ?? records.find((r) => r.id === id);
     if (!rec) return 'Record not found.';
-    if (rec.isRequested) return 'This booklet is already requested.';
 
     try {
+      const duplicate = await findOpenRequest({
+        requesterId: user.id,
+        courseCode: rec.courseCode,
+        session: rec.session,
+        registrationNo: rec.admissionNumber,
+        studentName: rec.studentName,
+        archiveId: rec.id,
+        requestKind: 'PHYSICAL_BOOKLET',
+      });
+      if (duplicate) return 'You already have an open request for this booklet.';
+
       const created = await insertRequest({
         recordId: rec.id,
         requesterId: user.id,
         requesterName: user.name,
         type,
+        requestKind: 'PHYSICAL_BOOKLET',
         courseCode: rec.courseCode,
-        courseTitle: `${rec.courseCode}: ${rec.courseName}`,
+        courseTitle: `${rec.courseCode}: ${rec.courseName}${rec.programme ? ` · ${rec.programme}` : ''}`,
         session: rec.session,
         faculty: rec.faculty,
-        regOrCohort: `Reg: ${rec.admissionNumber}`,
+        regOrCohort: rec.admissionNumber,
         studentName: rec.studentName,
         currentStep: 1,
         totalSteps: 4,
         stepStatusText: '● Step 1/4',
-        shelfLocation: shelfLine(rec),
-        rack: rec.rack,
-        box: rec.box,
-        officerStatus: 'Sent',
+        shelfLocation: rec.shelf || undefined,
+        rack: rec.rack || undefined,
+        box: rec.box || undefined,
+        position: rec.pos || undefined,
+        officerStatus: 'Pending',
+        lecturerNote: reason?.trim() || undefined,
       });
       setRequests((current) => [created, ...current]);
       setRecords((current) =>
@@ -168,6 +192,51 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           row.id === id ? { ...row, isRequested: true, vaultStatus: 'Requested' } : row
         )
       );
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Could not save the request.';
+    }
+  };
+
+  const requestMissingBooklet = async (filter: SearchFilterState, reason: string) => {
+    if (!user) return 'You must be signed in.';
+    if (user.role !== 'Lecturer') return 'Only a lecturer can request a booklet.';
+    const courseCode = filter.unitCode.trim() || 'Not specified';
+    const session = filter.session === ALL_SESSIONS ? '' : filter.session;
+    const faculty = filter.faculty === ALL_SCHOOLS ? '' : filter.faculty;
+    const programme = filter.programme === ALL_PROGRAMMES ? '' : filter.programme;
+    try {
+      const duplicate = await findOpenRequest({
+        requesterId: user.id,
+        courseCode,
+        session,
+        registrationNo: filter.admissionNumber.trim(),
+        studentName: filter.studentName.trim(),
+        requestKind: 'MISSING_PDF_INVESTIGATION',
+      });
+      if (duplicate) return 'You already have an open request for this booklet.';
+      const created = await insertRequest({
+        recordId: '',
+        requesterId: user.id,
+        requesterName: user.name,
+        type: 'PHYSICAL RETRIEVAL',
+        requestKind: 'MISSING_PDF_INVESTIGATION',
+        courseCode,
+        courseTitle:
+          [filter.unitName.trim(), programme].filter(Boolean).join(' · ') ||
+          'Missing examination booklet',
+        session,
+        faculty,
+        regOrCohort: filter.admissionNumber.trim(),
+        studentName: filter.studentName.trim(),
+        currentStep: 1,
+        totalSteps: 4,
+        stepStatusText: '● Step 1/4',
+        officerStatus: 'Pending',
+        lecturerNote: reason.trim(),
+      });
+      setRequests((current) => [created, ...current]);
+      logSearch(courseCode, created.courseTitle, faculty || 'Missing booklet');
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'Could not save the request.';
@@ -313,6 +382,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setSearchFilter,
       resetSearchFilter,
       requestBooklet,
+      requestMissingBooklet,
       advanceRequest,
       assignRequest,
       cancelRequest,

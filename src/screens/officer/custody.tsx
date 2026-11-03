@@ -14,9 +14,18 @@ export interface CustodyRequest {
   unitTitle: string;
   lecturer: string;
   school: string;
+  session?: string;
+  studentName?: string;
+  registrationNo?: string;
+  programme?: string;
+  requestKind?: string;
+  lecturerNote?: string;
+  officerNote?: string;
+  officerStatus?: string;
   shelf?: string;
   rack?: string;
   box?: string;
+  position?: string;
   booklets: number;
   status: RequestStatus;
   urgent: boolean;
@@ -131,6 +140,14 @@ interface CustodyContextValue {
   startRetrieval: (id: string) => void;
   logBatch: (input: LogBatchInput) => void;
   updateLocation: (id: string, shelf: string, box: string) => Promise<void>;
+  respondToRequest: (id: string, patch: {
+    officerStatus: string;
+    officerNote: string;
+    shelfLocation: string;
+    rack: string;
+    box: string;
+    position: string;
+  }) => Promise<void>;
   locateTracer: (id: string) => void;
   moveTracerShelf: (id: string, shelf: string) => void;
   verifyTracer: (id: string) => void;
@@ -156,9 +173,18 @@ function toCustodyRequest(row: ActiveRetrievalRequest): CustodyRequest {
     unitTitle: row.courseTitle,
     lecturer: row.requesterName,
     school: row.faculty,
+    session: row.session,
+    studentName: row.studentName,
+    registrationNo: row.regOrCohort,
+    programme: row.courseTitle.includes(' · ') ? row.courseTitle.split(' · ').slice(-1)[0] : undefined,
+    requestKind: row.requestKind,
+    lecturerNote: row.lecturerNote,
+    officerNote: row.officerNote,
+    officerStatus: row.officerStatus,
     shelf: row.shelfLocation,
     rack: row.rack,
     box: row.box,
+    position: row.position,
     booklets: 1,
     status,
     urgent: row.currentStep <= 1,
@@ -199,7 +225,7 @@ function toTracer(row: ActiveRetrievalRequest): TracerRequest {
   const shelf = shelfChip(row.shelfLocation || 'Vault');
   return {
     id: row.id,
-    student: row.studentName || 'Student',
+    student: row.studentName || row.regOrCohort || 'Physical bundle',
     reg: row.regOrCohort || '',
     school: row.faculty || '',
     lecturer: row.requesterName,
@@ -213,13 +239,21 @@ function toTracer(row: ActiveRetrievalRequest): TracerRequest {
     venueSub: row.rack || '',
     leftMeta: status === 'Pending' ? 'Awaiting trace' : status === 'Located' ? 'Physically located' : 'Filed',
     rightMeta: row.officerStatus || status,
-    chips: [
-      { title: shelf.title, detail: shelf.detail, tone: 'dark' },
-      ...(row.rack ? [{ title: 'Rack', detail: row.rack, tone: 'plain' as const }] : []),
-      ...(row.box
-        ? [{ title: 'Box', detail: row.box, tone: status === 'Pending' ? ('plain' as const) : ('green' as const) }]
-        : []),
-    ],
+    chips: row.shelfLocation?.includes('→')
+      ? [
+          { title: 'Location', detail: row.shelfLocation, tone: 'dark' as const },
+          ...(row.rack ? [{ title: 'Rack', detail: row.rack, tone: 'plain' as const }] : []),
+          ...(row.box
+            ? [{ title: 'Pos', detail: row.box, tone: status === 'Pending' ? ('plain' as const) : ('green' as const) }]
+            : []),
+        ]
+      : [
+          { title: shelf.title, detail: shelf.detail, tone: 'dark' },
+          ...(row.rack ? [{ title: 'Rack', detail: row.rack, tone: 'plain' as const }] : []),
+          ...(row.box
+            ? [{ title: 'Box', detail: row.box, tone: status === 'Pending' ? ('plain' as const) : ('green' as const) }]
+            : []),
+        ],
   };
 }
 
@@ -375,7 +409,7 @@ export const CustodyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           item.id === id ? { ...item, status: 'Located', expedite: false, rightMeta: 'Located' } : item
         )
       );
-      setFlash(`${tracer.student} marked physically located.`);
+      setFlash(`${tracer.student} marked physically located. The lecturer has been notified.`);
       void patchRequest(id, {
         currentStep: 3,
         officerStatus: 'Located',
@@ -443,6 +477,55 @@ export const CustodyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setFlash(`${booklet.code} moved to ${box}, ${shelf}.`);
     };
 
+    const respondToRequest = async (
+      id: string,
+      patch: {
+        officerStatus: string;
+        officerNote: string;
+        shelfLocation: string;
+        rack: string;
+        box: string;
+        position: string;
+      }
+    ) => {
+      const status = patch.officerStatus.toLowerCase();
+      const currentStep =
+        status === 'fulfilled' || status === 'not found' || status === 'not located'
+          ? 5
+          : status === 'located' || status === 'ready for collection'
+            ? 3
+            : status === 'received'
+              ? 2
+              : 1;
+      setRequests((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                officerStatus: patch.officerStatus,
+                officerNote: patch.officerNote,
+                shelf: patch.shelfLocation,
+                rack: patch.rack,
+                box: patch.box,
+                position: patch.position,
+                status: currentStep >= 5 ? 'Verified' : currentStep <= 1 ? 'Pending Review' : 'In Progress',
+              }
+            : item
+        )
+      );
+      setFlash('The lecturer has been notified of this update.');
+      await patchRequest(id, {
+        currentStep,
+        officerStatus: patch.officerStatus,
+        officerNote: patch.officerNote,
+        stepStatusText: patch.officerNote || patch.officerStatus,
+        shelfLocation: patch.shelfLocation,
+        rack: patch.rack,
+        box: patch.box,
+        position: patch.position,
+      });
+    };
+
     return {
       requests,
       booklets,
@@ -454,6 +537,7 @@ export const CustodyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       startRetrieval,
       logBatch,
       updateLocation,
+      respondToRequest,
       locateTracer,
       moveTracerShelf,
       verifyTracer,

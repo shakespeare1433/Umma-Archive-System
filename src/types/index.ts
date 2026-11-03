@@ -8,8 +8,11 @@ export interface SearchFilterState {
   faculty: string;
   programme: string;
   session: string;
+  academicYear: string;
+  semester: string;
   unitCode: string;
   unitName: string;
+  bundleCode: string;
   studentName: string;
   admissionNumber: string;
 }
@@ -23,7 +26,13 @@ export type RootStackParamList = {
   ForgotPassword: { emailOrUser?: string } | undefined;
   Dashboard: { initialTab?: LecturerTab } | undefined;
   LecturerSearchResults: { filter: SearchFilterState };
-  LecturerBookletDetails: { bookletId: string };
+  LecturerBookletDetails: {
+    bookletId: string;
+    startPage?: number;
+    endPage?: number;
+    studentName?: string;
+    registrationNo?: string;
+  };
 };
 
 export interface AppUser {
@@ -86,13 +95,16 @@ export interface ArchivedExaminationRecord {
 }
 
 export type RetrievalType = 'PHYSICAL RETRIEVAL' | 'MODERATION PULL';
+export type RetrievalRequestKind = 'PHYSICAL_BOOKLET' | 'MISSING_PDF_INVESTIGATION';
 
 export interface ActiveRetrievalRequest {
   id: string;
   recordId: string;
+  bundleId?: string;
   requesterId: string;
   requesterName: string;
   type: RetrievalType;
+  requestKind?: RetrievalRequestKind;
   courseCode: string;
   courseTitle: string;
   session: string;
@@ -105,9 +117,12 @@ export interface ActiveRetrievalRequest {
   shelfLocation?: string;
   rack?: string;
   box?: string;
+  position?: string;
   readyEta?: string;
   custodian?: string;
   officerStatus?: string;
+  lecturerNote?: string;
+  officerNote?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +174,9 @@ export interface Booklet {
   digitised: boolean;
   uploadedBy: string | null;
   archiveId: string | null;
+  startPage?: number | null;
+  endPage?: number | null;
+  scriptCount?: number | null;
   createdAt: string;
 }
 
@@ -167,6 +185,43 @@ export interface BookletDownload {
   bookletId: string;
   lecturerId: string;
   action: BookletDownloadAction;
+  createdAt: string;
+}
+
+export interface ExamBundle {
+  id: string;
+  bundleCode: string;
+  qrToken: string;
+  qrActive: boolean;
+  school: string;
+  programme: string;
+  academicYear: string;
+  semester: string;
+  unitCode: string;
+  unitName: string;
+  studentName: string;
+  registrationNo: string;
+  store: string;
+  shelf: string;
+  rack: string;
+  position: string;
+  bookletCount: number;
+  createdAt: string;
+}
+
+export interface BundleBooklet {
+  id: string;
+  bundleId: string;
+  studentName: string;
+  registrationNo: string;
+  school: string;
+  programme: string;
+  academicYear: string;
+  semester: string;
+  unitCode: string;
+  unitName: string;
+  coverPath: string | null;
+  coverUrl?: string | null;
   createdAt: string;
 }
 

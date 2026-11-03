@@ -62,14 +62,14 @@ Download the Android APK from the latest GitHub release:
 
 **Maryam Mahamed**
 
-BSc Information Technology  
+ Information Technology Student 
 Umma University
 
 ## 📌 Project Status
 
-Version: 1.0.0
+v1.0.0
 
-This project was developed as an academic project at Umma University.
+This project is available for testing and further development
 
 ## 🔗 Repository
 

@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "ke.ac.umma.archive",
       "adaptiveIcon": {
         "foregroundImage": "./assets/exam-archive-logo.png",
         "backgroundColor": "#f8f9ff"
@@ -60,6 +61,7 @@
       ],
       "expo-document-picker",
       "expo-sharing"
+<<<<<<< HEAD
     ],
     "extra": {
       "eas": {
@@ -68,5 +70,8 @@
       "supabaseUrl": "https://vrwmhxxhwrbbdrsvrhhc.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyd21oeHhod3JiYmRyc3ZyaGhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQ5ODgsImV4cCI6MjEwNzA0MDk4OH0.954RYtx7SkK07KHceXq8UB_S066yHRq7jVI5F_ZsLI4"
     }
+=======
+    ]
+>>>>>>> c19a06274ac8f8bcf4dc1d67dfbb8d35334698c7
   }
 }

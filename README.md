@@ -1,54 +1,120 @@
-# UMMA Archive — Mobile Retrieval System
+# 📚 Umma University Examination Archive System
 
-A high-fidelity mobile application for the UMMA Examination Archive & Retrieval System built with **React Native** and **Expo SDK 57** for Expo Go on physical mobile devices.
+An Android mobile application developed using **React Native and Expo** to simplify the storage, management, searching, and retrieval of archived examination booklets at Umma University.
 
----
+## 📖 About the Project
 
-## 📱 Features & Exact Design Reproduction
+The Umma University Examination Archive System is designed to improve the management of examination booklets by providing a digital archiving solution for authorized university staff.
 
-- **Splash Screen**:
-  - Custom branding with UMMA Archive emblem (palm crest + pen nib).
-  - Sparkling ambient backdrop with smooth auto-transition to onboarding.
-- **Onboarding Flow (4 Steps)**:
-  - **Step 1: Organize Your Archive** (`onboarding_archive`) — Institutional verification badge, 3D archivist character, Archival Cloud Sync badge, pill pagination, and Next CTA.
-  - **Step 2: Find What You Need Faster** (`onboarding_search`) — 3D character with holographic query, Index Matched badge, Test Booklet card, and Next CTA.
-  - **Step 3: Locate & Verify** (`onboarding_locate`) — 3D guide character on pedestal, verification chip, and Next CTA.
-  - **Step 4: Achieve Excellence** (`onboarding_get_started`) — Celebration character, 256-bit security badge, Ready status, and "Get Started" CTA.
-  - **Skip Button**: Accessible from any onboarding step to jump directly to Role Selection.
-- **Role Selection** (`role`):
-  - Choose between **Lecturer**, **Examination Officer**, and **Admin** with custom styled cards and icons.
-- **Authentication Screens**:
-  - **Sign In / Welcome Back** (`sign up age`) — Ambient background card, UMMA emblem, username/password inputs, and forgot password link.
-  - **Create Account** (`login page`) — Full Name, Email, Create Password, Terms notice, and seamless switch to Log In.
-  - **Forgot Password** (`forgot password`) — Email/username recovery workflow with confirmation state.
-- **Examination Retrieval Portal Dashboard**:
-  - Role-specific greeting and actions.
-  - Live booklet search across course code, title, and shelf location.
-  - Status filter chips (All, Verified, In Shelf, Audited, Pending Review).
-  - Detailed booklet retrieval card with shelf number, box number, script count, and modal detail inspection with QR scan retrieval simulation.
+The system reduces dependence on physical storage and makes it easier for lecturers and examination officers to locate and retrieve previously archived examination booklets when needed, particularly for missing marks and remarking cases.
 
----
+## ✨ Features
 
-## 🚀 Running on Mobile via Expo Go (SDK 57)
+- **Secure Authentication:** Authorized users log in using their assigned credentials.
+- **Booklet Archiving:** Store and organize scanned examination booklets digitally.
+- **Booklet Search:** Search for archived booklets using details such as school, programme, academic year, bundle code, unit code, and unit name.
+- **PDF Viewing:** View matching archived examination booklets in PDF format.
+- **PDF Download:** Download retrieved booklets when required.
+- **User Management:** Administrators manage lecturer and examination officer accounts.
+- **Activity Monitoring:** Track relevant system activities.
+- **Role-Based Access:** Different interfaces and permissions for administrators, lecturers, and examination officers.
 
-### 1. Prerequisites
-- Install **Expo Go** from Google Play Store (Android) or Apple App Store (iOS) on your mobile phone.
-- Ensure your phone and development computer are on the same Wi-Fi network.
+## 🛠️ Technologies Used
 
-### 2. Start the Expo Server
-In the project directory, run:
-```bash
-npm start
-```
-or
-```bash
-npx expo start
-```
+- React Native
+- Expo
+- JavaScript / TypeScript
+- Git
+- GitHub
+- [Add your database and storage technologies here]
 
-### 3. Open on Mobile
-- **Android**: Open the **Expo Go** app and tap **Scan QR Code**, then scan the QR code displayed in your terminal.
-- **iOS**: Open the native **Camera** app, scan the terminal QR code, and tap the notification banner to open in Expo Go.
-- **Tunnel Mode** (if on different networks or behind strict firewalls):
-  ```bash
-  npx expo start --tunnel
-  ```
+## 📱 Application Screenshots
+
+Screenshots of the application will be added here.
+
+### Splash Screen
+<!-- Add splash screen screenshot here -->
+
+### Login Screen
+<!-- Add login screenshot here -->
+
+### Lecturer Dashboard
+<!-- Add lecturer dashboard screenshot here -->
+
+### Booklet Search
+<!-- Add search screenshot here -->
+
+### Archived Booklet PDF
+<!-- Add PDF viewer screenshot here -->
+
+### Admin Dashboard
+<!-- Add admin dashboard screenshot here -->
+
+## 📥 Download the Application
+
+The Android APK will be made available through the GitHub Releases section.
+
+Users can download and install the application on compatible Android devices.
+
+## 🚀 How to Run the Project
+
+### Prerequisites
+
+- Node.js
+- npm
+- Expo Go
+- Git
+
+### Installation
+
+1. Clone the repository:
+
+   ```bash
+   git clone YOUR_GITHUB_REPOSITORY_LINK
+   ```
+
+2. Navigate to the project directory:
+
+   ```bash
+   cd YOUR_PROJECT_FOLDER
+   ```
+
+3. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+4. Start the Expo development server:
+
+   ```bash
+   npx expo start
+   ```
+
+5. Scan the QR code using Expo Go to run the application.
+
+## 👥 System Users
+
+The system supports three main user roles:
+
+- **Administrator:** Manages user accounts and system activities.
+- **Lecturer:** Searches for and retrieves archived examination booklets.
+- **Examination Officer:** Supports examination booklet archiving and management.
+
+## 🎓 Project Information
+
+**Institution:** Umma University
+
+**Project Title:** Umma University Examination Archive System
+
+**Platform:** Android Mobile Application
+
+**Development Framework:** React Native with Expo
+
+## 👩‍💻 Developer
+
+Maryam Mahamed kule
+
+
+
+© 2026 Umma University Examination Archive System.

@@ -1,120 +1,76 @@
-# 📚 Umma University Examination Archive System
+# 🎓 Umma University Examination Archive System
 
-An Android mobile application developed using **React Native and Expo** to simplify the storage, management, searching, and retrieval of archived examination booklets at Umma University.
+A mobile-based examination archive and retrieval system developed for Umma University to improve the storage, management and retrieval of examination booklets.
 
-## 📖 About the Project
+## 📌 About the Project
 
-The Umma University Examination Archive System is designed to improve the management of examination booklets by providing a digital archiving solution for authorized university staff.
+The Umma University Examination Archive System is designed to digitize the management of physical examination booklets. It helps lecturers quickly search for and retrieve examination scripts when handling missing marks, remarking and other examination-related issues.
 
-The system reduces dependence on physical storage and makes it easier for lecturers and examination officers to locate and retrieve previously archived examination booklets when needed, particularly for missing marks and remarking cases.
+The system also enables Examination Officers to upload combined examination PDF files, manage physical archive locations and respond to lecturer retrieval requests.
 
-## ✨ Features
+## ✨ Key Features
 
-- **Secure Authentication:** Authorized users log in using their assigned credentials.
-- **Booklet Archiving:** Store and organize scanned examination booklets digitally.
-- **Booklet Search:** Search for archived booklets using details such as school, programme, academic year, bundle code, unit code, and unit name.
-- **PDF Viewing:** View matching archived examination booklets in PDF format.
-- **PDF Download:** Download retrieved booklets when required.
-- **User Management:** Administrators manage lecturer and examination officer accounts.
-- **Activity Monitoring:** Track relevant system activities.
-- **Role-Based Access:** Different interfaces and permissions for administrators, lecturers, and examination officers.
+- **Lecturer Module:** Search for examination booklets using school, programme, academic session and unit details.
+- **Examination Officer Module:** Upload examination PDFs, manage archives and handle lecturer requests.
+- **Administrator Module:** Manage system users and user accounts.
+- **PDF Viewing and Downloading:** View and download retrieved examination booklets.
+- **Archive Management:** Record and manage physical shelf, rack and box locations.
+- **Search History:** View previously retrieved examination booklets.
+- **Authentication:** Secure login with role-based access.
 
 ## 🛠️ Technologies Used
 
 - React Native
-- Expo
+- Expo SDK 57
+- Supabase
 - JavaScript / TypeScript
-- Git
-- GitHub
-- [Add your database and storage technologies here]
+- Visual Studio Code
+- Git and GitHub
 
 ## 📱 Application Screenshots
 
-Screenshots of the application will be added here.
+Screenshots of the application will be displayed here.
 
-### Splash Screen
-<!-- Add splash screen screenshot here -->
-
-### Login Screen
-<!-- Add login screenshot here -->
-
-### Lecturer Dashboard
-<!-- Add lecturer dashboard screenshot here -->
-
-### Booklet Search
-<!-- Add search screenshot here -->
-
-### Archived Booklet PDF
-<!-- Add PDF viewer screenshot here -->
-
-### Admin Dashboard
-<!-- Add admin dashboard screenshot here -->
+<!-- Add your screenshots here -->
 
 ## 📥 Download the Application
 
-The Android APK will be made available through the GitHub Releases section.
+Download the Android APK from the latest GitHub release:
 
-Users can download and install the application on compatible Android devices.
+**[Download Umma Archive System APK](https://github.com/shakespeare1433/Umma-Archive-System/releases/latest)**
+
+1. Open the release page on your Android phone.
+2. Download the APK file.
+3. Allow installation from the appropriate source if Android asks.
+4. Install and open the application.
 
 ## 🚀 How to Run the Project
 
-### Prerequisites
+1. Clone this repository.
+2. Open the project folder in Visual Studio Code.
+3. Install dependencies using `npm install`.
+4. Configure the required Supabase environment variables.
+5. Start the Expo development server using `npx expo start`.
 
-- Node.js
-- npm
-- Expo Go
-- Git
+## 👥 User Roles
 
-### Installation
-
-1. Clone the repository:
-
-   ```bash
-   git clone YOUR_GITHUB_REPOSITORY_LINK
-   ```
-
-2. Navigate to the project directory:
-
-   ```bash
-   cd YOUR_PROJECT_FOLDER
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-4. Start the Expo development server:
-
-   ```bash
-   npx expo start
-   ```
-
-5. Scan the QR code using Expo Go to run the application.
-
-## 👥 System Users
-
-The system supports three main user roles:
-
-- **Administrator:** Manages user accounts and system activities.
-- **Lecturer:** Searches for and retrieves archived examination booklets.
-- **Examination Officer:** Supports examination booklet archiving and management.
-
-## 🎓 Project Information
-
-**Institution:** Umma University
-
-**Project Title:** Umma University Examination Archive System
-
-**Platform:** Android Mobile Application
-
-**Development Framework:** React Native with Expo
+- Lecturer
+- Examination Officer
+- Administrator
 
 ## 👩‍💻 Developer
 
-Maryam Mahamed kule
+**Maryam Mahamed**
 
+ Information Technology Student 
+Umma University
 
+## 📌 Project Status
 
-© 2026 Umma University Examination Archive System.
+v1.0.0
+
+This project is available for testing and further development
+
+## 🔗 Repository
+
+[View Umma University Examination Archive System on GitHub](https://github.com/shakespeare1433/Umma-Archive-System)

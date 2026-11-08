@@ -28,10 +28,20 @@ The system also enables Examination Officers to upload combined examination PDF 
 - Git and GitHub
 
 ## 📱 Application Screenshots
-<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 33" src="https://github.com/user-attachments/assets/9176ae9f-e819-46e3-afc4-d448e1689b95" />
+splash screen and onboarding screen
+<img width="738" height="1600" alt="splash" src="https://github.com/user-attachments/assets/cbbace5b-37c8-458e-96e8-f99ddc61c53a" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 16" src="https://github.com/user-attachments/assets/ef6f16ae-e3ea-47ca-a585-657002561457" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 18" src="https://github.com/user-attachments/assets/a9ccc7c3-acfa-4134-b6b3-adcb8b4bb143" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 17" src="https://github.com/user-attachments/assets/763221f2-cf13-4f05-baaf-2001cad893ac" />
+login screen
+<img width="738" height="1600" alt="WhatsApp Image 2026-10-31 at 23 34 15" src="https://github.com/user-attachments/assets/7b7ec35e-7d90-4e2f-bc95-926662d3fc1d" />
+lecturer and examination officers' screen
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 33" src="https://github.com/user-attachments/assets/f504a33a-be78-41c9-980f-d7ccc559a3ad" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 33 (2)" src="https://github.com/user-attachments/assets/284b21a0-a72a-4dbc-9b3e-0d4ad5576578" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 33 (1)" src="https://github.com/user-attachments/assets/cb174d6c-42fb-4797-a564-381952070877" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 32" src="https://github.com/user-attachments/assets/e6c4f486-2839-428b-9ad2-4e3dbaf6eca8" />
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 21" src="https://github.com/user-attachments/assets/f29832a1-3ed0-4ac1-a80c-3297ca2b10b8" />
 
-
-<!-- Add your screenshots here -->
 
 ## 📥 Download the Application
 

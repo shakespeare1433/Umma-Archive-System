@@ -15,15 +15,19 @@ export const OnboardingLocateScreen: React.FC<Props> = ({ navigation }) => {
 
   const finish = async () => {
     await completeOnboarding();
-    navigation.navigate('SignIn');
+    navigation.replace('SignIn');
   };
 
   return (
     <OnboardingSlide
-      source={require('../../assets/images/onboarding-find-blue.jpg')}
+      source={require('../../assets/images/onboarding-3-digital-physical-ghost.jpg')}
       ctaLabel="Get Started"
-      onNext={finish}
-      onSkip={() => navigation.navigate('SignIn')}
+      onNext={() => {
+        void finish();
+      }}
+      onSkip={() => {
+        void finish();
+      }}
       onBack={() => navigation.goBack()}
     />
   );

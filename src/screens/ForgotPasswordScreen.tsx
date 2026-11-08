@@ -4,9 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +14,7 @@ import { RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type ForgotNavProp = NativeStackNavigationProp<RootStackParamList, 'ForgotPassword'>;
 type ForgotRouteProp = RouteProp<RootStackParamList, 'ForgotPassword'>;
@@ -63,16 +61,8 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => 
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <KeyboardScrollView bottomOffset={32} contentContainerStyle={styles.scrollContent}>
           <View style={styles.ambientDisc} />
 
           <View style={styles.card}>
@@ -158,8 +148,7 @@ export const ForgotPasswordScreen: React.FC<Props> = ({ navigation, route }) => 
               </View>
             )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardScrollView>
     </SafeAreaView>
   );
 };
@@ -169,14 +158,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#EBF4F6',
   },
-  keyboardView: {
-    flex: 1,
-  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingTop: 24,
+    paddingBottom: 24,
   },
   ambientDisc: {
     position: 'absolute',

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { UmmaLogo } from '../../components/UmmaLogo';
+import { officerPalette, useTheme } from '../../context/ThemeContext';
 import {
   ArchivedBooklet,
   BookletIcon,
@@ -78,12 +79,19 @@ export function BackBar({
   onRight?: () => void;
   rightDisabled?: boolean;
 }) {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   return (
-    <View style={styles.backBar}>
-      <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityLabel="Go back">
-        <Feather name="arrow-left" size={18} color={NAVY} />
+    <View style={[styles.backBar, { backgroundColor: palette.card, borderBottomColor: palette.line }]}>
+      <TouchableOpacity
+        style={[styles.backBtn, { backgroundColor: palette.field }]}
+        onPress={onBack}
+        activeOpacity={0.7}
+        accessibilityLabel="Go back"
+      >
+        <Feather name="arrow-left" size={18} color={palette.ink} />
       </TouchableOpacity>
-      <Text style={styles.backTitle} numberOfLines={1}>
+      <Text style={[styles.backTitle, { color: palette.ink }]} numberOfLines={1}>
         {title}
       </Text>
       {rightLabel && onRight ? (
@@ -95,7 +103,15 @@ export function BackBar({
           accessibilityLabel={rightLabel}
           style={styles.backRight}
         >
-          <Text style={[styles.backRightText, rightDisabled && styles.backRightOff]}>{rightLabel}</Text>
+          <Text
+            style={[
+              styles.backRightText,
+              { color: palette.ink },
+              rightDisabled && styles.backRightOff,
+            ]}
+          >
+            {rightLabel}
+          </Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -127,27 +143,29 @@ export function RequestCard({
   onVerify: () => void;
   onRetrieve: () => void;
 }) {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   const showVerify = request.status === 'In Progress';
   const showRetrieve = request.status === 'Pending Review';
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: palette.card, borderColor: palette.line }]}>
       <TouchableOpacity activeOpacity={0.92} onPress={onOpen}>
       <View style={styles.cardTop}>
-        <Text style={styles.ref}>{request.ref}</Text>
-        <Text style={styles.unit} numberOfLines={1}>
+        <Text style={[styles.ref, { color: palette.ink }]}>{request.ref}</Text>
+        <Text style={[styles.unit, { color: palette.muted }]} numberOfLines={1}>
           {request.unitCode} • {request.unitTitle}
         </Text>
         <StatusPill status={request.status} />
       </View>
-      <Text style={styles.lecturer}>{request.lecturer}</Text>
-      <Text style={styles.school}>{request.school}</Text>
+      <Text style={[styles.lecturer, { color: palette.ink }]}>{request.lecturer}</Text>
+      <Text style={[styles.school, { color: palette.muted }]}>{request.school}</Text>
 
       {request.mode === 'custody' && request.shelf ? (
         <View style={styles.metaRow}>
-          <View style={styles.locChip}>
-            <Feather name="map-pin" size={12} color="#475569" />
-            <Text style={styles.locText}>
+          <View style={[styles.locChip, { backgroundColor: palette.soft }]}>
+            <Feather name="map-pin" size={12} color={palette.muted} />
+            <Text style={[styles.locText, { color: palette.body }]}>
               Loc  {request.shelf}  {request.rack}
             </Text>
           </View>
@@ -157,20 +175,24 @@ export function RequestCard({
               <Text style={styles.boxText}>{request.box}</Text>
             </View>
           ) : null}
-          <Text style={styles.bookletCount}>{request.booklets} Booklets</Text>
+          <Text style={[styles.bookletCount, { color: palette.muted }]}>{request.booklets} Booklets</Text>
         </View>
       ) : (
         <View style={styles.metaRow}>
-          <Text style={styles.moderation}>{request.moderationLabel}</Text>
-          <Text style={styles.bookletCount}>{request.booklets} Booklets</Text>
+          <Text style={[styles.moderation, { color: palette.muted }]}>{request.moderationLabel}</Text>
+          <Text style={[styles.bookletCount, { color: palette.muted }]}>{request.booklets} Booklets</Text>
         </View>
       )}
       </TouchableOpacity>
 
       {showVerify ? (
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.outlineBtn} activeOpacity={0.8} onPress={onOpen}>
-            <Text style={styles.outlineText}>Details</Text>
+          <TouchableOpacity
+            style={[styles.outlineBtn, { backgroundColor: palette.card, borderColor: palette.line }]}
+            activeOpacity={0.8}
+            onPress={onOpen}
+          >
+            <Text style={[styles.outlineText, { color: palette.ink }]}>Details</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.fillBtn} activeOpacity={0.85} onPress={onVerify}>
             <MaterialCommunityIcons name="shield-check" size={16} color="#FFFFFF" />
@@ -180,8 +202,12 @@ export function RequestCard({
       ) : null}
 
       {showRetrieve ? (
-        <TouchableOpacity style={styles.wideOutline} activeOpacity={0.85} onPress={onRetrieve}>
-          <Text style={styles.outlineText}>Begin Vault Retrieval</Text>
+        <TouchableOpacity
+          style={[styles.wideOutline, { backgroundColor: palette.card, borderColor: palette.ink }]}
+          activeOpacity={0.85}
+          onPress={onRetrieve}
+        >
+          <Text style={[styles.outlineText, { color: palette.ink }]}>Begin Vault Retrieval</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -202,19 +228,25 @@ const ICONS: Record<BookletIcon, { name: React.ComponentProps<typeof MaterialCom
 };
 
 export function BookletRow({ item, onPress }: { item: ArchivedBooklet; onPress: () => void }) {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   const icon = ICONS[item.icon];
   return (
-    <TouchableOpacity style={styles.booklet} activeOpacity={0.85} onPress={onPress}>
+    <TouchableOpacity
+      style={[styles.booklet, { backgroundColor: palette.card, borderColor: palette.line }]}
+      activeOpacity={0.85}
+      onPress={onPress}
+    >
       <View style={[styles.bookletIcon, { backgroundColor: icon.bg }]}>
         <MaterialCommunityIcons name={icon.name} size={20} color={icon.fg} />
       </View>
       <View style={styles.bookletBody}>
-        <Text style={styles.bookletTitle} numberOfLines={1}>
-          <Text style={styles.bookletCode}>{item.code} </Text>
+        <Text style={[styles.bookletTitle, { color: palette.muted }]} numberOfLines={1}>
+          <Text style={[styles.bookletCode, { color: palette.ink }]}>{item.code} </Text>
           {item.title}
         </Text>
-        <Text style={styles.scripts}>{item.scripts} scripts</Text>
-        <Text style={styles.bookletMeta} numberOfLines={1}>
+        <Text style={[styles.scripts, { color: palette.body }]}>{item.scripts} scripts</Text>
+        <Text style={[styles.bookletMeta, { color: palette.muted }]} numberOfLines={1}>
           {item.box}, {item.shelf} • {item.when}
           {item.actor ? ` ${item.actor}` : ''}
         </Text>
@@ -228,7 +260,9 @@ export function BookletRow({ item, onPress }: { item: ArchivedBooklet; onPress: 
 }
 
 export function FieldLabel({ children }: { children: string }) {
-  return <Text style={styles.fieldLabel}>{children}</Text>;
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
+  return <Text style={[styles.fieldLabel, { color: palette.muted }]}>{children}</Text>;
 }
 
 const styles = StyleSheet.create({

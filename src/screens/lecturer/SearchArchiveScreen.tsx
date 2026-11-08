@@ -6,95 +6,118 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Platform,
   Alert,
   Modal,
-  Pressable,
   ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialCommunityIcons, Feather, MaterialIcons } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
-import { ALL_SESSIONS, RootStackParamList } from '../../types';
-import { BOOKLET_COPY } from '../../constants/booklets';
-import { hasActiveBookletFilter } from '../../services/bookletService';
+import { ALL_SESSIONS, Booklet, RootStackParamList } from '../../types';
+import { BOOKLET_COPY, bookletHasPdf } from '../../constants/booklets';
 import {
-  ACADEMIC_SESSIONS,
+  bookletFileName,
+  downloadBookletPdf,
+  friendlyBookletError,
+  hasActiveBookletFilter,
+  searchBooklets,
+  shareBookletFile,
+} from '../../services/bookletService';
+import {
+  ACADEMIC_SESSION_TERMS,
+  ACADEMIC_SESSION_YEARS,
   ALL_PROGRAMMES,
   ALL_SCHOOLS,
+  formatAcademicSession,
+  parseAcademicSession,
   PROGRAMMES_BY_SCHOOL,
   programmesForSchool,
   SCHOOLS,
 } from '../../data/catalog';
-import { loadAcademicSessions, loadProgrammesBySchool } from '../../services/catalogService';
-import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
+import { loadProgrammesBySchool, loadSchools } from '../../services/catalogService';
+import { borderRadius, colors as tokens, spacing } from '../../theme';
 
 const SEARCH_COPY = {
-  title: 'Search Archive',
-  subtitle: 'Enter the details below to find a booklet',
+  title: 'Search Examination Booklet',
+  subtitle: "Find a student's examination script using the following details.",
   clear: 'Clear',
   school: 'School',
   programme: 'Programme',
   session: 'Academic Session',
   unitCode: 'Unit Code',
   unitName: 'Unit Name',
+  bundleId: 'Bundle ID',
   studentName: 'Student Name',
   admissionNumber: 'Registration Number',
-  optional: 'Optional',
   search: 'Search',
-  info: 'You can search using any combination of the above details.',
+  results: 'Search Results',
 } as const;
 
 type Palette = ReturnType<typeof lecturerPalette>;
 type SearchStyles = ReturnType<typeof createSearchStyles>;
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-const FIELD_ICON_SIZE = 20;
-const FIELD_ICON_WELL = 36;
+/** Medium wells — each field gets its own dark coloured background. */
+const ICON = {
+  school: { name: 'school-outline' as IconName, bg: '#1E3A8A', fg: '#DBEAFE' },
+  programme: { name: 'book-open-page-variant-outline' as IconName, bg: '#5B21B6', fg: '#EDE9FE' },
+  session: { name: 'calendar-month-outline' as IconName, bg: '#0F766E', fg: '#CCFBF1' },
+  unitCode: { name: 'file-document-outline' as IconName, bg: '#9A3412', fg: '#FFEDD5' },
+  unitName: { name: 'notebook-outline' as IconName, bg: '#166534', fg: '#DCFCE7' },
+  bundle: { name: 'barcode' as IconName, bg: '#334155', fg: '#E2E8F0' },
+  student: { name: 'account-outline' as IconName, bg: '#1E40AF', fg: '#DBEAFE' },
+  reg: { name: 'card-account-details-outline' as IconName, bg: '#9F1239', fg: '#FFE4E6' },
+};
 
 export const SearchArchiveScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { theme } = useTheme();
   const colors = lecturerPalette(theme);
   const styles = useMemo(() => createSearchStyles(colors), [theme]);
-  const {
-    searchFilter,
-    setSearchFilter,
-    resetSearchFilter,
-    logSearch,
-  } = useVault();
+  const { searchFilter, setSearchFilter, resetSearchFilter, logSearch, saveFoundBooklet } = useVault();
 
-  const schools = [ALL_SCHOOLS, ...SCHOOLS];
-  const [sessionChoices, setSessionChoices] = useState<string[]>([...ACADEMIC_SESSIONS]);
-  const sessions = [ALL_SESSIONS, ...sessionChoices];
+  const [schoolChoices, setSchoolChoices] = useState<string[]>([...SCHOOLS]);
+  const schools = [ALL_SCHOOLS, ...schoolChoices];
+  const sessionYears = [ALL_SESSIONS, ...ACADEMIC_SESSION_YEARS];
   const [programmesBySchool, setProgrammesBySchool] = useState(PROGRAMMES_BY_SCHOOL);
   const programmeChoices = programmesForSchool(searchFilter.faculty, programmesBySchool);
   const programmes = [ALL_PROGRAMMES, ...programmeChoices];
+  const selectedSession = parseAcademicSession(searchFilter.session);
+
+  const [showFacultyModal, setShowFacultyModal] = useState(false);
+  const [showProgrammeModal, setShowProgrammeModal] = useState(false);
+  const [showSessionYearModal, setShowSessionYearModal] = useState(false);
+  const [showSessionTermModal, setShowSessionTermModal] = useState(false);
+  const [pendingSessionYear, setPendingSessionYear] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [results, setResults] = useState<Booklet[]>([]);
+  const [searched, setSearched] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadProgrammesBySchool(), loadAcademicSessions()])
-      .then(([nextProgrammes, nextSessions]) => {
+    Promise.all([loadSchools(), loadProgrammesBySchool()])
+      .then(([nextSchools, nextProgrammes]) => {
         if (cancelled) return;
+        setSchoolChoices(nextSchools);
         setProgrammesBySchool(nextProgrammes);
-        setSessionChoices(nextSessions);
       })
-      .catch(() => {
-        // The bundled school lists still drive the dropdowns if the catalog query fails.
-      });
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const [showFacultyModal, setShowFacultyModal] = useState(false);
-  const [showProgrammeModal, setShowProgrammeModal] = useState(false);
-  const [showSessionModal, setShowSessionModal] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState('');
+  const showToast = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(''), 3200);
+  };
 
   const runSearch = async () => {
     if (!hasActiveBookletFilter(searchFilter)) {
@@ -110,297 +133,377 @@ export const SearchArchiveScreen: React.FC = () => {
         searchFilter.unitName || searchFilter.studentName,
         searchFilter.faculty
       );
-      navigation.navigate('LecturerSearchResults', { filter: { ...searchFilter } });
+      const found = await searchBooklets(searchFilter, { page: 0, pageSize: 20, sort: 'newest' });
+      setResults(found.rows);
+      setSearched(true);
+      found.rows.slice(0, 5).forEach((row) => {
+        saveFoundBooklet(
+          row.unitCode,
+          row.unitName,
+          row.programme || row.school,
+          `Found ${new Date().toLocaleString()}`
+        );
+      });
+    } catch (caught) {
+      setResults([]);
+      setSearched(true);
+      setSearchError(friendlyBookletError(caught));
     } finally {
       setSearching(false);
     }
   };
 
+  const viewPdf = (booklet: Booklet) => {
+    if (!bookletHasPdf(booklet) || !booklet.pdfPath) {
+      showToast(BOOKLET_COPY.missingFile);
+      return;
+    }
+    navigation.navigate('LecturerPdfViewer', {
+      bookletId: booklet.id,
+      pdfPath: booklet.pdfPath,
+      startPage: booklet.startPage ?? undefined,
+      endPage: booklet.endPage ?? undefined,
+      pageCount: booklet.pageCount,
+      studentName: booklet.studentName,
+      registrationNo: booklet.registrationNo,
+      unitCode: booklet.unitCode,
+      unitName: booklet.unitName,
+    });
+  };
+
+  const downloadPdf = async (booklet: Booklet) => {
+    if (!bookletHasPdf(booklet)) {
+      showToast(BOOKLET_COPY.missingFile);
+      return;
+    }
+    setDownloadingId(booklet.id);
+    try {
+      const uri = await downloadBookletPdf(booklet);
+      await shareBookletFile(uri);
+      showToast(BOOKLET_COPY.savedAs(bookletFileName(booklet)));
+    } catch (caught) {
+      showToast(friendlyBookletError(caught));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const openPhysicalRequest = (booklet: Booklet) => {
+    navigation.navigate('LecturerRequestPhysical', {
+      bookletId: booklet.id,
+      archiveId: booklet.archiveId,
+      studentName: booklet.studentName,
+      registrationNo: booklet.registrationNo,
+      school: booklet.school,
+      programme: booklet.programme,
+      academicSession: booklet.academicSession,
+      unitCode: booklet.unitCode,
+      unitName: booklet.unitName,
+    });
+  };
+
   return (
-    <View style={styles.screenContainer}>
+    <View style={styles.screen}>
       <LecturerTopHeader subtitle="Lecturer Portal" />
 
-      <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-        >
-          <View style={styles.headingBlock}>
-            <Text style={styles.pageTitle}>{SEARCH_COPY.title}</Text>
-            <Text style={styles.pageSubtitle}>{SEARCH_COPY.subtitle}</Text>
-          </View>
-
-          <View style={styles.filterCard}>
-            <View style={styles.clearRow}>
-              <TouchableOpacity
-                onPress={resetSearchFilter}
-                style={styles.clearBtn}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Clear search filters"
-              >
-                <MaterialCommunityIcons name="refresh" size={FIELD_ICON_SIZE} color={tokens.primary} />
-                <Text style={styles.clearBtnText}>{SEARCH_COPY.clear}</Text>
-              </TouchableOpacity>
+      <KeyboardScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+      >
+        <View style={styles.card}>
+          <View style={styles.hero}>
+            <View style={styles.heroIcon}>
+              <Feather name="search" size={22} color={tokens.onPrimary} />
             </View>
-
-            <SelectField
-              label={SEARCH_COPY.school}
-              value={searchFilter.faculty}
-              icon="school-outline"
-              iconBg="#1E3A8A"
-              focused={showFacultyModal}
-              onPress={() => setShowFacultyModal(true)}
-              styles={styles}
-            />
-
-            <SelectField
-              label={SEARCH_COPY.programme}
-              value={searchFilter.programme}
-              icon="book-open-outline"
-              iconBg="#6B21A8"
-              focused={showProgrammeModal}
-              onPress={() => setShowProgrammeModal(true)}
-              styles={styles}
-            />
-
-            <SelectField
-              label={SEARCH_COPY.session}
-              value={searchFilter.session}
-              icon="calendar-outline"
-              iconBg="#0369A1"
-              focused={showSessionModal}
-              onPress={() => setShowSessionModal(true)}
-              styles={styles}
-            />
-
-            <TextField
-              label={SEARCH_COPY.unitCode}
-              icon="pound"
-              iconBg="#C2410C"
-              value={searchFilter.unitCode}
-              onChangeText={(txt) => setSearchFilter((p) => ({ ...p, unitCode: txt }))}
-              placeholder="e.g., CSC 3201"
-              styles={styles}
-            />
-
-            <TextField
-              label={SEARCH_COPY.unitName}
-              icon="book-outline"
-              iconBg="#047857"
-              value={searchFilter.unitName}
-              onChangeText={(txt) => setSearchFilter((p) => ({ ...p, unitName: txt }))}
-              placeholder="e.g., Advanced Database Systems"
-              styles={styles}
-            />
-
-            <TextField
-              label={SEARCH_COPY.studentName}
-              icon="account-outline"
-              iconBg="#1D4ED8"
-              value={searchFilter.studentName}
-              onChangeText={(txt) => setSearchFilter((p) => ({ ...p, studentName: txt }))}
-              placeholder="Filter by candidate..."
-              optional
-              styles={styles}
-            />
-
-            <TextField
-              label={SEARCH_COPY.admissionNumber}
-              icon="card-account-details-outline"
-              iconBg="#0F766E"
-              value={searchFilter.admissionNumber}
-              onChangeText={(txt) => setSearchFilter((p) => ({ ...p, admissionNumber: txt }))}
-              placeholder="e.g., CIT/00452/2021"
-              optional
-              styles={styles}
-            />
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.searchSubmitBtn,
-                pressed && !searching ? styles.searchSubmitBtnPressed : null,
-                searching ? styles.searchSubmitBtnDisabled : null,
-              ]}
-              onPress={() => {
-                void runSearch();
-              }}
-              disabled={searching}
-              accessibilityRole="button"
-              accessibilityLabel={SEARCH_COPY.search}
-              accessibilityState={{ disabled: searching, busy: searching }}
-            >
-              {searching ? (
-                <ActivityIndicator color={tokens.onPrimary} />
-              ) : (
-                <Feather name="search" size={FIELD_ICON_SIZE} color={tokens.onPrimary} />
-              )}
-              <Text style={styles.searchSubmitBtnText}>{SEARCH_COPY.search}</Text>
-            </Pressable>
+            <View style={styles.heroCopy}>
+              <Text style={styles.title}>{SEARCH_COPY.title}</Text>
+              <Text style={styles.subtitle}>{SEARCH_COPY.subtitle}</Text>
+            </View>
+            <TouchableOpacity onPress={resetSearchFilter} hitSlop={10} accessibilityLabel="Clear">
+              <MaterialCommunityIcons name="refresh" size={20} color={tokens.secondary} />
+            </TouchableOpacity>
           </View>
 
-          <View
-            style={styles.infoNote}
-            accessibilityRole="text"
-            accessibilityLabel={SEARCH_COPY.info}
+          <SelectField
+            label={SEARCH_COPY.school}
+            value={searchFilter.faculty}
+            icon={ICON.school}
+            focused={showFacultyModal}
+            onPress={() => setShowFacultyModal(true)}
+            styles={styles}
+          />
+          <SelectField
+            label={SEARCH_COPY.programme}
+            value={searchFilter.programme}
+            icon={ICON.programme}
+            focused={showProgrammeModal}
+            onPress={() => setShowProgrammeModal(true)}
+            styles={styles}
+          />
+          <SelectField
+            label={SEARCH_COPY.session}
+            value={searchFilter.session}
+            icon={ICON.session}
+            focused={showSessionYearModal || showSessionTermModal}
+            onPress={() => setShowSessionYearModal(true)}
+            styles={styles}
+          />
+          <TextField
+            label={SEARCH_COPY.unitCode}
+            icon={ICON.unitCode}
+            value={searchFilter.unitCode}
+            onChangeText={(txt) => setSearchFilter((p) => ({ ...p, unitCode: txt }))}
+            placeholder="e.g., ACC101"
+            styles={styles}
+          />
+          <TextField
+            label={SEARCH_COPY.unitName}
+            icon={ICON.unitName}
+            value={searchFilter.unitName}
+            onChangeText={(txt) => setSearchFilter((p) => ({ ...p, unitName: txt }))}
+            placeholder="e.g., Accounting"
+            styles={styles}
+          />
+          <TextField
+            label={SEARCH_COPY.bundleId}
+            icon={ICON.bundle}
+            value={searchFilter.bundleCode}
+            onChangeText={(txt) => setSearchFilter((p) => ({ ...p, bundleCode: txt }))}
+            placeholder="e.g. BND-2026-014"
+            autoCapitalize="characters"
+            styles={styles}
+          />
+          <TextField
+            label={SEARCH_COPY.studentName}
+            icon={ICON.student}
+            value={searchFilter.studentName}
+            onChangeText={(txt) => setSearchFilter((p) => ({ ...p, studentName: txt }))}
+            placeholder="Enter Student Name"
+            styles={styles}
+          />
+          <TextField
+            label={SEARCH_COPY.admissionNumber}
+            icon={ICON.reg}
+            value={searchFilter.admissionNumber}
+            onChangeText={(txt) => setSearchFilter((p) => ({ ...p, admissionNumber: txt }))}
+            placeholder="Enter Registration Number"
+            styles={styles}
+          />
+
+          <TouchableOpacity
+            style={[styles.searchBtn, searching && styles.searchBtnDisabled]}
+            onPress={() => void runSearch()}
+            disabled={searching}
+            activeOpacity={0.85}
           >
-            <View style={styles.infoIconCircle}>
-              <Feather name="info" size={FIELD_ICON_SIZE} color={tokens.onPrimary} />
-            </View>
-            <Text style={styles.infoNoteText}>{SEARCH_COPY.info}</Text>
-          </View>
-
-          {searchError ? <Text style={styles.emptyText}>{searchError}</Text> : null}
-        </ScrollView>
-
-      <Modal visible={showFacultyModal} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalSheetTitle}>Select School</Text>
-            {schools.map((fac) => (
-              <TouchableOpacity
-                key={fac}
-                style={styles.modalItem}
-                onPress={() => {
-                  setSearchFilter((p) => ({
-                    ...p,
-                    faculty: fac,
-                    programme: fac === p.faculty ? p.programme : ALL_PROGRAMMES,
-                  }));
-                  setShowFacultyModal(false);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.modalItemText,
-                    searchFilter.faculty === fac && styles.modalItemTextActive,
-                  ]}
-                >
-                  {fac}
-                </Text>
-                {searchFilter.faculty === fac && (
-                  <MaterialIcons name="check" size={18} color="#2563EB" />
-                )}
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setShowFacultyModal(false)}
-            >
-              <Text style={styles.modalCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+            {searching ? (
+              <ActivityIndicator color={tokens.onPrimary} />
+            ) : (
+              <Feather name="search" size={18} color={tokens.onPrimary} />
+            )}
+            <Text style={styles.searchBtnText}>{SEARCH_COPY.search}</Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
 
-      <Modal visible={showProgrammeModal} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalSheetTitle}>Select Programme</Text>
-            {programmeChoices.length === 0 && searchFilter.faculty !== ALL_SCHOOLS ? (
-              <Text style={styles.modalHint}>
-                No programmes are configured for this school yet. Search still includes every programme in the school.
-              </Text>
-            ) : null}
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              {programmes.map((programme) => (
+        {searchError ? <Text style={styles.error}>{searchError}</Text> : null}
+
+        {searched ? (
+          <View style={styles.resultsBlock}>
+            <Text style={styles.resultsTitle}>{SEARCH_COPY.results}</Text>
+            {results.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>{BOOKLET_COPY.emptyTitle}</Text>
+                <Text style={styles.emptyBody}>{BOOKLET_COPY.emptyBody}</Text>
                 <TouchableOpacity
-                  key={programme}
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setSearchFilter((p) => ({ ...p, programme }));
-                    setShowProgrammeModal(false);
-                  }}
+                  style={styles.requestWide}
+                  onPress={() => navigation.navigate('LecturerSearchResults', { filter: { ...searchFilter } })}
                 >
-                  <Text
-                    style={[
-                      styles.modalItemText,
-                      searchFilter.programme === programme && styles.modalItemTextActive,
-                    ]}
-                  >
-                    {programme}
-                  </Text>
-                  {searchFilter.programme === programme && (
-                    <MaterialIcons name="check" size={18} color="#2563EB" />
-                  )}
+                  <MaterialCommunityIcons name="package-variant-closed" size={18} color={tokens.onPrimary} />
+                  <Text style={styles.requestWideText}>{BOOKLET_COPY.requestOfficer}</Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setShowProgrammeModal(false)}
-            >
-              <Text style={styles.modalCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
+              </View>
+            ) : (
+              results.map((booklet) => (
+                <ResultCard
+                  key={`${booklet.id}-${booklet.registrationNo}-${booklet.startPage || 0}`}
+                  booklet={booklet}
+                  styles={styles}
+                  downloading={downloadingId === booklet.id}
+                  onView={() => viewPdf(booklet)}
+                  onDownload={() => void downloadPdf(booklet)}
+                  onRequest={() => openPhysicalRequest(booklet)}
+                  onOpenDetails={() =>
+                    navigation.navigate('LecturerBookletDetails', {
+                      bookletId: booklet.id,
+                      studentName: booklet.studentName,
+                      registrationNo: booklet.registrationNo,
+                      startPage: booklet.startPage,
+                      endPage: booklet.endPage,
+                    })
+                  }
+                />
+              ))
+            )}
           </View>
-        </View>
-      </Modal>
+        ) : null}
 
-      <Modal visible={showSessionModal} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalSheetTitle}>Select Academic Session</Text>
-            <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
-              {sessions.map((sess) => (
-                <TouchableOpacity
-                  key={sess}
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setSearchFilter((p) => ({ ...p, session: sess }));
-                    setShowSessionModal(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.modalItemText,
-                      searchFilter.session === sess && styles.modalItemTextActive,
-                    ]}
-                  >
-                    {sess}
-                  </Text>
-                  {searchFilter.session === sess && (
-                    <MaterialIcons name="check" size={18} color="#2563EB" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={styles.modalCloseBtn}
-              onPress={() => setShowSessionModal(false)}
-            >
-              <Text style={styles.modalCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
+        {toast ? (
+          <View style={styles.toast}>
+            <Text style={styles.toastText}>{toast}</Text>
           </View>
-        </View>
-      </Modal>
+        ) : null}
+      </KeyboardScrollView>
+
+      <PickerModal
+        visible={showFacultyModal}
+        title="Select School"
+        options={schools}
+        selected={searchFilter.faculty}
+        onClose={() => setShowFacultyModal(false)}
+        onSelect={(fac) => {
+          setSearchFilter((p) => ({
+            ...p,
+            faculty: fac,
+            programme: fac === p.faculty ? p.programme : ALL_PROGRAMMES,
+          }));
+          setShowFacultyModal(false);
+        }}
+        styles={styles}
+      />
+      <PickerModal
+        visible={showProgrammeModal}
+        title="Select Programme"
+        options={programmes}
+        selected={searchFilter.programme}
+        onClose={() => setShowProgrammeModal(false)}
+        onSelect={(programme) => {
+          setSearchFilter((p) => ({ ...p, programme }));
+          setShowProgrammeModal(false);
+        }}
+        styles={styles}
+      />
+      <PickerModal
+        visible={showSessionYearModal}
+        title="Select Year"
+        options={sessionYears}
+        selected={
+          searchFilter.session === ALL_SESSIONS ? ALL_SESSIONS : selectedSession?.year || ''
+        }
+        onClose={() => setShowSessionYearModal(false)}
+        onSelect={(year) => {
+          if (year === ALL_SESSIONS) {
+            setSearchFilter((p) => ({ ...p, session: ALL_SESSIONS }));
+            setPendingSessionYear('');
+            setShowSessionYearModal(false);
+            return;
+          }
+          setPendingSessionYear(year);
+          setShowSessionYearModal(false);
+          setShowSessionTermModal(true);
+        }}
+        styles={styles}
+      />
+      <PickerModal
+        visible={showSessionTermModal}
+        title={`${pendingSessionYear || selectedSession?.year || 'Session'} · Select Term`}
+        options={[...ACADEMIC_SESSION_TERMS]}
+        selected={
+          pendingSessionYear && selectedSession?.year === pendingSessionYear
+            ? selectedSession.term
+            : ''
+        }
+        onClose={() => {
+          setShowSessionTermModal(false);
+          setPendingSessionYear('');
+        }}
+        onSelect={(term) => {
+          const year = pendingSessionYear || selectedSession?.year;
+          if (!year) return;
+          setSearchFilter((p) => ({ ...p, session: formatAcademicSession(year, term) }));
+          setShowSessionTermModal(false);
+          setPendingSessionYear('');
+        }}
+        styles={styles}
+      />
+
     </View>
   );
 };
 
-function FieldLabel({
-  label,
-  optional,
+function ResultCard({
+  booklet,
   styles,
+  downloading,
+  onView,
+  onDownload,
+  onRequest,
+  onOpenDetails,
 }: {
-  label: string;
-  optional?: boolean;
+  booklet: Booklet;
   styles: SearchStyles;
+  downloading: boolean;
+  onView: () => void;
+  onDownload: () => void;
+  onRequest: () => void;
+  onOpenDetails: () => void;
 }) {
+  const ready = bookletHasPdf(booklet);
   return (
-    <View style={styles.fieldLabelRow}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      {optional ? <Text style={styles.optionalText}>{SEARCH_COPY.optional}</Text> : null}
-    </View>
-  );
-}
+    <View style={styles.resultCard}>
+      <TouchableOpacity style={styles.resultTop} onPress={onOpenDetails} activeOpacity={0.85}>
+        <View style={styles.pdfIcon}>
+          <MaterialCommunityIcons name="file-pdf-box" size={30} color="#DC2626" />
+        </View>
+        <View style={styles.resultCopy}>
+          <Text style={styles.resultName} numberOfLines={1}>
+            {booklet.studentName || BOOKLET_COPY.missingValue}
+          </Text>
+          <Text style={styles.resultMeta}>Reg No: {booklet.registrationNo || '—'}</Text>
+          <Text style={styles.resultMeta} numberOfLines={1}>
+            {booklet.school || '—'}
+          </Text>
+          <Text style={styles.resultMeta} numberOfLines={1}>
+            {booklet.programme || '—'} · {booklet.academicSession || '—'}
+          </Text>
+          <Text style={styles.resultMeta} numberOfLines={1}>
+            {booklet.unitCode} – {booklet.unitName}
+          </Text>
+        </View>
+        <View style={[styles.foundBadge, !ready && styles.physicalBadge]}>
+          <Text style={[styles.foundBadgeText, !ready && styles.physicalBadgeText]}>
+            {ready ? 'Found' : 'Physical'}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
-function IconWell({ name, iconBg, styles }: { name: IconName; iconBg: string; styles: SearchStyles }) {
-  return (
-    <View style={[styles.iconWell, { backgroundColor: iconBg }]} pointerEvents="none">
-      <MaterialCommunityIcons name={name} size={FIELD_ICON_SIZE} color={tokens.onPrimary} />
+      <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={[styles.actionBtn, !ready && styles.actionBtnDisabled]}
+          onPress={onView}
+          disabled={!ready}
+        >
+          <Feather name="eye" size={15} color={tokens.onPrimary} />
+          <Text style={styles.actionBtnText}>View PDF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionBtn, !ready && styles.actionBtnDisabled]}
+          onPress={onDownload}
+          disabled={!ready || downloading}
+        >
+          {downloading ? (
+            <ActivityIndicator size="small" color={tokens.onPrimary} />
+          ) : (
+            <Feather name="download" size={15} color={tokens.onPrimary} />
+          )}
+          <Text style={styles.actionBtnText}>Download</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity style={styles.requestWide} onPress={onRequest} activeOpacity={0.85}>
+        <MaterialCommunityIcons name="package-variant-closed" size={18} color={tokens.onPrimary} />
+        <Text style={styles.requestWideText}>Request Physical Booklet</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -409,35 +512,32 @@ function SelectField({
   label,
   value,
   icon,
-  iconBg,
   focused,
   onPress,
   styles,
 }: {
   label: string;
   value: string;
-  icon: IconName;
-  iconBg: string;
+  icon: { name: IconName; bg: string; fg: string };
   focused: boolean;
   onPress: () => void;
   styles: SearchStyles;
 }) {
   return (
-    <View style={styles.fieldBlock}>
-      <FieldLabel label={label} styles={styles} />
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
       <TouchableOpacity
-        style={[styles.fieldControl, focused ? styles.fieldControlFocused : null]}
+        style={[styles.control, focused && styles.controlFocused]}
         onPress={onPress}
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        accessibilityValue={{ text: value }}
+        activeOpacity={1}
       >
-        <IconWell name={icon} iconBg={iconBg} styles={styles} />
-        <Text style={styles.dropdownText} numberOfLines={1}>
+        <View style={[styles.iconWell, { backgroundColor: icon.bg }]}>
+          <MaterialCommunityIcons name={icon.name} size={22} color={icon.fg} />
+        </View>
+        <Text style={styles.controlText} numberOfLines={1}>
           {value}
         </Text>
-        <Feather name="chevron-down" size={FIELD_ICON_SIZE} color={tokens.primary} />
+        <Feather name="chevron-down" size={16} color={tokens.outline} />
       </TouchableOpacity>
     </View>
   );
@@ -446,561 +546,261 @@ function SelectField({
 function TextField({
   label,
   icon,
-  iconBg,
   value,
   onChangeText,
   placeholder,
-  optional,
+  autoCapitalize = 'none',
   styles,
 }: {
   label: string;
-  icon: IconName;
-  iconBg: string;
+  icon: { name: IconName; bg: string; fg: string };
   value: string;
   onChangeText: (txt: string) => void;
   placeholder: string;
-  optional?: boolean;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   styles: SearchStyles;
 }) {
   const inputRef = useRef<TextInput>(null);
-  const [focused, setFocused] = useState(false);
-
   return (
-    <View style={styles.fieldBlock}>
-      <FieldLabel label={label} optional={optional} styles={styles} />
-      <View
-        collapsable={false}
-        style={[styles.fieldControl, focused ? styles.fieldControlFocused : null]}
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TouchableOpacity
+        style={styles.control}
+        activeOpacity={1}
+        onPress={() => inputRef.current?.focus()}
       >
-        <IconWell name={icon} iconBg={iconBg} styles={styles} />
+        <View style={[styles.iconWell, { backgroundColor: icon.bg }]}>
+          <MaterialCommunityIcons name={icon.name} size={22} color={icon.fg} />
+        </View>
         <TextInput
           ref={inputRef}
-          style={styles.textInputField}
+          style={styles.input}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={tokens.placeholder}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          autoCapitalize={autoCapitalize}
           blurOnSubmit={false}
           autoCorrect={false}
-          textAlignVertical="center"
-          accessibilityLabel={optional ? `${label}, ${SEARCH_COPY.optional}` : label}
+          underlineColorAndroid="transparent"
+          selectionColor={tokens.primary}
+          cursorColor={tokens.primary}
         />
-      </View>
+      </TouchableOpacity>
     </View>
   );
 }
 
+function PickerModal({
+  visible,
+  title,
+  options,
+  selected,
+  onClose,
+  onSelect,
+  styles,
+}: {
+  visible: boolean;
+  title: string;
+  options: string[];
+  selected: string;
+  onClose: () => void;
+  onSelect: (value: string) => void;
+  styles: SearchStyles;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <ScrollView style={styles.modalList} keyboardShouldPersistTaps="handled">
+            {options.map((option) => (
+              <TouchableOpacity key={option} style={styles.modalItem} onPress={() => onSelect(option)}>
+                <Text style={[styles.modalItemText, selected === option && styles.modalItemTextOn]}>
+                  {option}
+                </Text>
+                {selected === option ? <MaterialIcons name="check" size={18} color={tokens.secondary} /> : null}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity style={styles.modalCancel} onPress={onClose}>
+            <Text style={styles.modalCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function createSearchStyles(palette: Palette) {
-  const { dark, page, card, ink, body, muted, line, field } = palette;
-  const serif = Platform.OS === 'ios' ? 'Georgia' : typography.fontFamilySerif;
-  const fieldBg = dark ? field : tokens.surfaceContainerLowest;
-  const cardBorder = dark ? line : tokens.surfaceContainerHigh;
-  const infoBg = dark ? tokens.primaryContainer : tokens.roleLecturerBg;
-  const infoBorder = dark ? line : tokens.surfaceContainerHigh;
-  const labelColor = dark ? ink : tokens.primary;
+  const page = palette.dark ? '#0B1220' : '#D7DEEA';
+  const card = palette.dark ? '#152238' : '#EEF2F8';
+  const ink = palette.dark ? '#F8FAFC' : '#0B1C30';
+  const muted = palette.dark ? '#94A3B8' : '#475569';
+  const line = palette.dark ? '#334155' : '#B8C7DE';
+  const field = palette.dark ? '#0F172A' : '#F8FAFC';
 
   return StyleSheet.create({
-    screenContainer: {
-      flex: 1,
-      backgroundColor: page,
-    },
-    flex: {
-      flex: 1,
-    },
-    scrollView: {
-      flex: 1,
-    },
-    scrollContent: {
-      paddingHorizontal: spacing.md,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.xxl,
-    },
-    headingBlock: {
-      backgroundColor: tokens.primary,
-      borderRadius: borderRadius.panel,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.lg,
-      marginBottom: spacing.md,
-      shadowColor: tokens.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.22,
-      shadowRadius: 10,
-      elevation: 3,
-    },
-    pageTitle: {
-      fontSize: control.heading,
-      lineHeight: 28,
-      fontWeight: '700',
-      color: tokens.onPrimary,
-      fontFamily: typography.fontFamilySans,
-    },
-    pageSubtitle: {
-      marginTop: spacing.xs,
-      fontSize: control.subtitle,
-      lineHeight: 18,
-      color: tokens.surfaceContainerHighest,
-      fontFamily: typography.fontFamilySans,
-    },
-    filterCard: {
+    screen: { flex: 1, backgroundColor: page },
+    scroll: { flex: 1 },
+    content: { padding: spacing.md, paddingBottom: 36 },
+    card: {
       backgroundColor: card,
-      borderRadius: borderRadius.panel,
+      borderRadius: borderRadius.lg,
       padding: spacing.md,
       borderWidth: 1,
-      borderColor: cardBorder,
-      marginBottom: spacing.md,
-      shadowColor: tokens.onSurface,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: dark ? 0 : 0.06,
-      shadowRadius: 12,
-      elevation: 3,
+      borderColor: line,
     },
-    clearRow: {
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-      marginBottom: spacing.sm,
-    },
-    clearBtn: {
-      flexDirection: 'row',
+    hero: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+    heroIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: tokens.primary,
       alignItems: 'center',
-      minHeight: control.minTap,
-      paddingHorizontal: spacing.sm,
-      gap: spacing.xs,
+      justifyContent: 'center',
     },
-    clearBtnText: {
-      fontSize: control.subtitle,
-      fontWeight: '600',
-      color: tokens.primary,
-      fontFamily: typography.fontFamilySans,
-    },
-    fieldBlock: {
-      marginBottom: spacing.md,
-    },
-    fieldLabelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.sm,
-      minHeight: 20,
-    },
-    fieldLabel: {
-      fontSize: control.label,
-      fontWeight: '600',
-      color: labelColor,
-      fontFamily: typography.fontFamilySans,
-    },
-    optionalText: {
-      fontSize: control.subtitle,
-      fontWeight: '500',
-      color: muted,
-      fontFamily: typography.fontFamilySans,
-    },
-    fieldControl: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: fieldBg,
-      borderWidth: 2,
-      borderColor: tokens.inputBorder,
+    heroCopy: { flex: 1 },
+    title: { fontSize: 18, fontWeight: '800', color: ink },
+    subtitle: { marginTop: 4, fontSize: 12, lineHeight: 17, color: muted, fontWeight: '600' },
+    field: { marginBottom: 10 },
+    label: { fontSize: 12, fontWeight: '800', color: tokens.primary, marginBottom: 6 },
+    control: {
+      minHeight: 48,
       borderRadius: borderRadius.md,
-      minHeight: control.inputHeight,
-      paddingHorizontal: spacing.sm,
-      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: line,
+      backgroundColor: field,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
     },
-    fieldControlFocused: {
-      borderColor: tokens.primary,
-      backgroundColor: fieldBg,
+    controlFocused: {
+      borderColor: line,
+      backgroundColor: field,
     },
     iconWell: {
-      width: FIELD_ICON_WELL,
-      height: FIELD_ICON_WELL,
-      borderRadius: borderRadius.md,
+      width: 40,
+      height: 40,
+      borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    dropdownText: {
-      flex: 1,
-      fontSize: control.body,
-      color: body,
-      fontWeight: '500',
-      fontFamily: typography.fontFamilySans,
-    },
-    textInputField: {
-      flex: 1,
-      height: control.inputHeight - 4,
-      fontSize: control.body,
-      color: body,
-      paddingVertical: 0,
-      margin: 0,
-      fontFamily: typography.fontFamilySans,
-    },
-    searchSubmitBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
+    controlText: { flex: 1, fontSize: 14, fontWeight: '600', color: ink },
+    input: { flex: 1, fontSize: 14, fontWeight: '600', color: ink, paddingVertical: 10 },
+    searchBtn: {
+      marginTop: 6,
+      height: 48,
+      borderRadius: borderRadius.button,
       backgroundColor: tokens.primary,
-      borderRadius: borderRadius.button,
-      minHeight: control.inputHeight,
-      gap: spacing.sm,
-      shadowColor: tokens.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.28,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    searchSubmitBtnPressed: {
-      backgroundColor: tokens.primaryHover,
-    },
-    searchSubmitBtnDisabled: {
-      opacity: 0.6,
-    },
-    searchSubmitBtnText: {
-      fontSize: control.body,
-      fontWeight: '700',
-      color: tokens.onPrimary,
-      fontFamily: typography.fontFamilySans,
-    },
-    scanSubmitBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: tokens.surfaceContainerLowest,
-      borderRadius: borderRadius.button,
-      minHeight: control.inputHeight,
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-      borderWidth: 1.5,
-      borderColor: tokens.primary,
-    },
-    scanSubmitBtnPressed: {
-      backgroundColor: tokens.primaryContainer,
-    },
-    scanSubmitBtnText: {
-      fontSize: control.body,
-      fontWeight: '700',
-      color: tokens.primary,
-      fontFamily: typography.fontFamilySans,
-    },
-    infoNote: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: infoBg,
-      borderRadius: borderRadius.note,
-      borderWidth: 1,
-      borderColor: infoBorder,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
-      gap: spacing.sm,
-      marginBottom: spacing.lg,
-    },
-    infoIconCircle: {
-      width: FIELD_ICON_WELL,
-      height: FIELD_ICON_WELL,
-      borderRadius: FIELD_ICON_WELL / 2,
-      backgroundColor: '#1E3A8A',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    infoNoteText: {
-      flex: 1,
-      fontSize: control.note,
-      lineHeight: 18,
-      color: labelColor,
-      fontFamily: typography.fontFamilySans,
-    },
-    resultsHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 12,
-    },
-    resultsTitleGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    greenLiveDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: '#16A34A',
-    },
-    emptyText: {
-      marginBottom: 12,
-      color: muted,
-      fontSize: 14,
-      fontWeight: '600',
-    },
-    resultsSectionTitle: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: ink,
-    },
-    resultsControlsGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
       gap: 8,
     },
-    foundBadge: {
-      backgroundColor: '#EDE9FE',
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 12,
-    },
-    foundBadgeText: {
-      fontSize: 11,
-      fontWeight: '600',
-      color: '#6D28D9',
-    },
-    sortButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      minHeight: control.minTap,
-      gap: 2,
-    },
-    sortButtonText: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: muted,
-    },
-    recordCard: {
+    searchBtnDisabled: { opacity: 0.7 },
+    searchBtnText: { color: tokens.onPrimary, fontWeight: '800', fontSize: 15 },
+    error: { marginTop: 10, color: tokens.error, fontWeight: '700', fontSize: 12 },
+    resultsBlock: { marginTop: 18 },
+    resultsTitle: { fontSize: 16, fontWeight: '800', color: ink, marginBottom: 10 },
+    emptyCard: {
       backgroundColor: card,
-      borderRadius: 14,
-      padding: 14,
+      borderRadius: borderRadius.lg,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: line,
+      gap: 8,
+    },
+    emptyTitle: { fontSize: 14, fontWeight: '800', color: ink },
+    emptyBody: { fontSize: 12, color: muted, lineHeight: 18 },
+    resultCard: {
+      backgroundColor: card,
+      borderRadius: borderRadius.lg,
+      padding: 12,
       borderWidth: 1,
       borderColor: line,
       marginBottom: 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.03,
-      shadowRadius: 3,
-      elevation: 1,
     },
-    recordTopRow: {
-      flexDirection: 'row',
+    resultTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    pdfIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: '#FEE2E2',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 8,
-    },
-    recordBadgesLeft: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    courseCodePill: {
-      backgroundColor: '#35477B',
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 8,
-    },
-    courseCodePillText: {
-      fontSize: 11,
-      fontWeight: '700',
-      color: '#FFFFFF',
-    },
-    originalBookletPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#DCFCE7',
-      paddingHorizontal: 7,
-      paddingVertical: 3,
-      borderRadius: 8,
-      gap: 3,
-    },
-    originalBookletPillText: {
-      fontSize: 10.5,
-      fontWeight: '600',
-      color: '#166534',
-    },
-    sessionDateText: {
-      fontSize: 11.5,
-      color: muted,
-    },
-    recordCourseName: {
-      fontSize: 15,
-      fontWeight: '700',
-      color: body,
-      fontFamily: serif,
-      marginBottom: 6,
-    },
-    candidateRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      marginBottom: 10,
-    },
-    candidateText: {
-      fontSize: 12,
-      color: muted,
-      fontWeight: '500',
-    },
-    coordinateContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: field,
-      borderRadius: 8,
-      padding: 9,
-      marginBottom: 12,
-    },
-    coordIcon: {
-      marginRight: 8,
-    },
-    coordContent: {
-      flex: 1,
-    },
-    coordLabel: {
-      fontSize: 10,
-      color: muted,
-      marginBottom: 1,
-    },
-    coordCoordinates: {
-      fontSize: 11.5,
-      fontWeight: '700',
-      color: body,
-    },
-    recordFooterRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    vaultVerifiedTag: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-    },
-    vaultVerifiedText: {
-      fontSize: 11.5,
-      fontWeight: '600',
-      color: '#15803D',
-    },
-    requestBookletBtn: {
-      backgroundColor: '#A7F3D0',
-      paddingHorizontal: 14,
-      paddingVertical: 6,
-      borderRadius: 16,
-      minHeight: control.minTap,
       justifyContent: 'center',
     },
-    requestBookletBtnDisabled: {
-      backgroundColor: '#E2E8F0',
+    resultCopy: { flex: 1 },
+    resultName: { fontSize: 14, fontWeight: '800', color: ink },
+    resultMeta: { marginTop: 2, fontSize: 11, fontWeight: '600', color: muted },
+    foundBadge: {
+      backgroundColor: '#14532D',
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
     },
-    requestBookletBtnText: {
-      fontSize: 11.5,
-      fontWeight: '700',
-      color: '#064E3B',
+    foundBadgeText: { color: '#BBF7D0', fontSize: 10, fontWeight: '800' },
+    physicalBadge: { backgroundColor: '#1E3A8A' },
+    physicalBadgeText: { color: '#BFDBFE' },
+    actionRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+    actionBtn: {
+      flex: 1,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: tokens.primary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
     },
+    actionBtnDisabled: { opacity: 0.45 },
+    actionBtnText: { color: tokens.onPrimary, fontWeight: '800', fontSize: 12 },
+    requestWide: {
+      marginTop: 8,
+      height: 42,
+      borderRadius: 10,
+      backgroundColor: '#047857',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    requestWideText: { color: tokens.onPrimary, fontWeight: '800', fontSize: 13 },
+    toast: {
+      marginTop: 10,
+      backgroundColor: tokens.primary,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    toastText: { color: tokens.onPrimary, fontWeight: '700', fontSize: 12 },
     modalBackdrop: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.45)',
+      backgroundColor: 'rgba(15,23,42,0.45)',
       justifyContent: 'flex-end',
     },
     modalSheet: {
-      backgroundColor: card,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      padding: 20,
-      maxHeight: '60%',
+      backgroundColor: palette.dark ? '#1E293B' : '#FFFFFF',
+      borderTopLeftRadius: 22,
+      borderTopRightRadius: 22,
+      padding: 18,
+      paddingBottom: 28,
+      maxHeight: '70%',
     },
-    modalSheetTitle: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: ink,
-      marginBottom: 14,
-    },
-    modalHint: {
-      fontSize: 13,
-      lineHeight: 18,
-      color: muted,
-      marginBottom: 10,
-    },
-    modalList: {
-      flexGrow: 0,
-    },
+    modalTitle: { fontSize: 16, fontWeight: '800', color: ink, marginBottom: 8 },
+    modalList: { flexGrow: 0 },
     modalItem: {
+      paddingVertical: 14,
+      borderTopWidth: 1,
+      borderTopColor: line,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingVertical: 12,
-      minHeight: control.minTap,
-      borderBottomWidth: 1,
-      borderBottomColor: line,
     },
-    modalItemText: {
-      fontSize: 14,
-      color: body,
-    },
-    modalItemTextActive: {
-      color: '#2563EB',
-      fontWeight: '700',
-    },
-    modalCloseBtn: {
-      backgroundColor: field,
-      borderRadius: 10,
-      paddingVertical: 12,
-      minHeight: control.minTap,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 14,
-    },
-    modalCloseBtnText: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: muted,
-    },
-    successModalCard: {
-      backgroundColor: card,
-      borderRadius: 20,
-      padding: 24,
-      marginHorizontal: 24,
-      marginBottom: '40%',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.15,
-      shadowRadius: 12,
-      elevation: 8,
-    },
-    successIconCircle: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: '#DCFCE7',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 12,
-    },
-    successModalTitle: {
-      fontSize: 17,
-      fontWeight: '700',
-      color: ink,
-      textAlign: 'center',
-      marginBottom: 8,
-    },
-    successModalMessage: {
-      fontSize: 13,
-      color: muted,
-      textAlign: 'center',
-      lineHeight: 18,
-      marginBottom: 8,
-    },
-    successModalCoordinate: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: '#2563EB',
-      marginBottom: 16,
-    },
-    successModalBtn: {
-      backgroundColor: '#35477B',
-      borderRadius: 12,
-      paddingVertical: 10,
-      paddingHorizontal: 32,
-      minHeight: control.minTap,
-      justifyContent: 'center',
-    },
-    successModalBtnText: {
-      color: '#FFFFFF',
-      fontWeight: '700',
-      fontSize: 14,
-    },
+    modalItemText: { fontSize: 14, fontWeight: '600', color: ink, flex: 1, paddingRight: 8 },
+    modalItemTextOn: { color: tokens.secondary, fontWeight: '800' },
+    modalCancel: { alignItems: 'center', paddingVertical: 12 },
+    modalCancelText: { color: muted, fontWeight: '700' },
   });
 }

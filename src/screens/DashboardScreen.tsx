@@ -21,7 +21,7 @@ interface Props {
 }
 
 const LECTURER_TABS = [
-  { key: 'Home', label: 'Home', icon: 'view-grid-outline' },
+  { key: 'Home', label: 'Dashboard', icon: 'view-grid-outline' },
   { key: 'Search', label: 'Search', icon: 'search' },
   { key: 'History', label: 'History', icon: 'history' },
   { key: 'Profile', label: 'Profile', icon: 'user' },
@@ -42,21 +42,54 @@ export const DashboardScreen: React.FC<Props> = () => {
   }
 
   if (user?.role === 'Admin') {
-    return (
-      <RoleShell
-        tabs={ADMIN_TABS}
-        render={(tab, setTab) => {
-          if (tab === 'Users') return <AdminUsersScreen />;
-          if (tab === 'Activity') return <AdminActivityScreen />;
-          if (tab === 'Settings') return <AdminSettingsScreen />;
-          return <AdminOverviewScreen onOpenActivity={() => setTab('Activity')} />;
-        }}
-      />
-    );
+    return <AdminDashboard />;
   }
 
   return <LecturerDashboard />;
 };
+
+function AdminDashboard() {
+  const [activityFocus, setActivityFocus] = useState<'all' | 'upload' | 'download' | 'request' | undefined>();
+
+  return (
+    <RoleShell
+      tabs={ADMIN_TABS}
+      render={(tab, setTab) => {
+        if (tab === 'Users') return <AdminUsersScreen />;
+        if (tab === 'Activity') {
+          return (
+            <AdminActivityScreen
+              initialFilter={activityFocus}
+              onInitialFilterConsumed={() => setActivityFocus(undefined)}
+            />
+          );
+        }
+        if (tab === 'Settings') return <AdminSettingsScreen />;
+        return (
+          <AdminOverviewScreen
+            onOpenActivity={() => {
+              setActivityFocus('all');
+              setTab('Activity');
+            }}
+            onOpenUsers={() => setTab('Users')}
+            onOpenArchivedPdfs={() => {
+              setActivityFocus('upload');
+              setTab('Activity');
+            }}
+            onOpenLocateRequests={() => {
+              setActivityFocus('request');
+              setTab('Activity');
+            }}
+            onOpenDownloads={() => {
+              setActivityFocus('download');
+              setTab('Activity');
+            }}
+          />
+        );
+      }}
+    />
+  );
+}
 
 function LecturerDashboard() {
   const [tab, setTab] = useState('Home');
@@ -82,7 +115,12 @@ function LecturerDashboard() {
           if (current === 'Search') return <SearchArchiveScreen />;
           if (current === 'History') return <LecturerHistoryScreen onOpenSearch={() => setCurrentTab('Search')} />;
           if (current === 'Profile') return <LecturerProfileScreen />;
-          return <LecturerHomeScreen onOpenSearch={() => setCurrentTab('Search')} />;
+          return (
+            <LecturerHomeScreen
+              onOpenSearch={() => setCurrentTab('Search')}
+              onOpenHistory={() => setCurrentTab('History')}
+            />
+          );
         }}
       />
     </LecturerNoticeProvider>

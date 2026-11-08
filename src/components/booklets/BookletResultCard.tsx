@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
-import { BOOKLET_COPY } from '../../constants/booklets';
+import { BOOKLET_COPY, bookletHasPdf, formatPhysicalLocation } from '../../constants/booklets';
 import { Booklet } from '../../types';
 import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
 
@@ -22,9 +22,10 @@ export const BookletResultCard: React.FC<Props> = ({
   const { theme } = useTheme();
   const palette = lecturerPalette(theme);
   const styles = useMemo(() => createStyles(palette), [theme]);
-  const ready = booklet.digitised && Boolean(booklet.pdfPath);
+  const ready = bookletHasPdf(booklet);
   const title = `${booklet.unitCode} · ${booklet.unitName}`;
   const sessionLine = [booklet.programme, booklet.academicSession].filter(Boolean).join(' · ');
+  const locationLine = formatPhysicalLocation(booklet);
 
   return (
     <TouchableOpacity
@@ -48,11 +49,17 @@ export const BookletResultCard: React.FC<Props> = ({
         <Text style={styles.meta} numberOfLines={1}>
           {sessionLine}
         </Text>
-        {booklet.startPage && booklet.endPage ? (
-          <Text style={styles.meta} numberOfLines={1}>
-            {BOOKLET_COPY.pagesOf(booklet.startPage, booklet.endPage)}
-          </Text>
-        ) : null}
+        <Text style={styles.meta} numberOfLines={1}>
+          {typeof booklet.scriptCount === 'number' && booklet.scriptCount > 0
+            ? `${booklet.scriptCount} script${booklet.scriptCount === 1 ? '' : 's'}`
+            : 'Scripts not recorded'}
+          {booklet.startPage && booklet.endPage
+            ? ` · ${BOOKLET_COPY.pagesOf(booklet.startPage, booklet.endPage)}`
+            : ''}
+        </Text>
+        <Text style={styles.location} numberOfLines={2}>
+          {locationLine}
+        </Text>
         <View style={[styles.chip, ready ? styles.readyChip : styles.pendingChip]}>
           <Text style={[styles.chipText, ready ? styles.readyChipText : styles.pendingChipText]}>
             {ready ? BOOKLET_COPY.pdfReady : BOOKLET_COPY.notDigitised}
@@ -117,6 +124,13 @@ function createStyles(palette: ReturnType<typeof lecturerPalette>) {
       marginTop: spacing.xs,
       fontSize: control.subtitle,
       color: palette.muted,
+      fontFamily: typography.fontFamilySans,
+    },
+    location: {
+      marginTop: spacing.sm,
+      fontSize: 12,
+      fontWeight: '700',
+      color: tokens.primary,
       fontFamily: typography.fontFamilySans,
     },
     chip: {

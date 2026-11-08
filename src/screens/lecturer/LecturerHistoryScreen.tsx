@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   Platform,
   Alert,
 } from 'react-native';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { useAuth } from '../../context/AuthContext';
 import { useLecturerNotice } from '../../context/LecturerNoticeContext';
@@ -132,7 +132,7 @@ export const LecturerHistoryScreen: React.FC<Props> = () => {
     <View style={styles.screenContainer}>
       <LecturerTopHeader subtitle="Lecturer Portal" />
 
-      <ScrollView
+      <KeyboardScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -317,7 +317,7 @@ export const LecturerHistoryScreen: React.FC<Props> = () => {
         )}
         </>
         )}
-      </ScrollView>
+      </KeyboardScrollView>
     </View>
   );
 };

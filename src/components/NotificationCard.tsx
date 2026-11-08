@@ -256,20 +256,32 @@ export const NotificationCard: React.FC<Props> = ({
 export const NoticeFilterBar: React.FC<{
   value: NoticeFilter;
   onChange: (next: NoticeFilter) => void;
-}> = ({ value, onChange }) => (
-  <View style={styles.filters} collapsable={false} pointerEvents="box-none">
+  dark?: boolean;
+}> = ({ value, onChange, dark }) => (
+  <View
+    style={[styles.filters, dark && styles.filtersDark]}
+    collapsable={false}
+    pointerEvents="box-none"
+  >
     {FILTERS.map((item) => {
       const on = item.key === value;
       return (
         <View key={item.key} style={styles.filterSlot} collapsable={false}>
           <Pressable
             onPress={() => onChange(item.key)}
-            style={[styles.filterChip, on && styles.filterChipOn]}
+            style={[styles.filterChip, dark && styles.filterChipDark, on && styles.filterChipOn]}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
             accessibilityLabel={item.label}
           >
-            <Text style={[styles.filterText, on && styles.filterTextOn]} numberOfLines={1}>
+            <Text
+              style={[
+                styles.filterText,
+                dark && styles.filterTextDark,
+                on && styles.filterTextOn,
+              ]}
+              numberOfLines={1}
+            >
               {item.label}
             </Text>
           </Pressable>
@@ -287,7 +299,9 @@ export const NotificationInbox: React.FC<{
   dark?: boolean;
   statusOf: (note: AppNotification) => { label: string; tone: NoticeTone; icon: NoticeIcon };
   onPressNote?: (note: AppNotification) => void;
-}> = ({ notes, loading, error, empty, dark, statusOf, onPressNote }) => {
+}> = ({ notes, loading, error, empty, dark: darkProp, statusOf, onPressNote }) => {
+  const { theme } = useTheme();
+  const dark = darkProp ?? theme === 'dark';
   const [filter, setFilter] = React.useState<NoticeFilter>('all');
   const filtered = notes.filter((note) => matchesNoticeFilter(statusOf(note).tone, filter));
   const groups = groupNotesByWhen(filtered);
@@ -297,8 +311,8 @@ export const NotificationInbox: React.FC<{
       : empty;
 
   return (
-    <View style={styles.inbox}>
-      <NoticeFilterBar value={filter} onChange={setFilter} />
+    <View style={[styles.inbox, dark && styles.inboxDark]}>
+      <NoticeFilterBar value={filter} onChange={setFilter} dark={dark} />
       <ScrollView
         style={styles.listScroll}
         contentContainerStyle={styles.list}
@@ -436,12 +450,18 @@ const styles = StyleSheet.create({
   inbox: {
     flex: 1,
   },
+  inboxDark: {
+    backgroundColor: '#0F172A',
+  },
   filters: {
     height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     backgroundColor: '#F4F6F9',
+  },
+  filtersDark: {
+    backgroundColor: '#0F172A',
   },
   filterSlot: {
     flex: 1,
@@ -455,6 +475,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  filterChipDark: {
+    backgroundColor: '#1E293B',
+  },
   filterChipOn: {
     backgroundColor: tokens.primary,
   },
@@ -464,6 +487,9 @@ const styles = StyleSheet.create({
     color: tokens.outline,
     textAlign: 'center',
     includeFontPadding: false,
+  },
+  filterTextDark: {
+    color: '#94A3B8',
   },
   filterTextOn: {
     color: tokens.onPrimary,

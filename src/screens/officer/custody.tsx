@@ -1,6 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { listArchives, updateArchiveLocation, updateArchiveLocationByIdentity } from '../../services/archiveService';
-import { listRequests, patchRequest } from '../../services/requestService';
+import {
+  listArchives,
+  updateArchive,
+  updateArchiveLocation,
+  updateArchiveLocationByIdentity,
+} from '../../services/archiveService';
+import { listRequests, patchRequest, getRequest } from '../../services/requestService';
+import { createNotification } from '../../services/notificationService';
 import { ActiveRetrievalRequest, ArchivedExaminationRecord } from '../../types';
 
 export type RequestStatus = 'In Progress' | 'Pending Review' | 'Verified';
@@ -100,7 +106,7 @@ export function tracerBadgeCount(tracers: TracerRequest[], onRequestsTab: boolea
 }
 
 export const NAVY = '#1B2744';
-export const PAGE = '#F4F6F9';
+export const PAGE = '#DCE3EF';
 
 const INITIAL_REQUESTS: CustodyRequest[] = [];
 
@@ -147,7 +153,7 @@ interface CustodyContextValue {
     rack: string;
     box: string;
     position: string;
-  }) => Promise<void>;
+  }) => Promise<{ notified: boolean }>;
   locateTracer: (id: string) => void;
   moveTracerShelf: (id: string, shelf: string) => void;
   verifyTracer: (id: string) => void;
@@ -489,41 +495,125 @@ export const CustodyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     ) => {
       const status = patch.officerStatus.toLowerCase();
-      const currentStep =
-        status === 'fulfilled' || status === 'not found' || status === 'not located'
-          ? 5
+      // Pending → Located (confirm) → Completed (handover)
+      const normalized =
+        status === 'completed' || status === 'fulfilled'
+          ? 'Completed'
           : status === 'located' || status === 'ready for collection'
-            ? 3
-            : status === 'received'
-              ? 2
-              : 1;
+            ? 'Located'
+            : 'Pending';
+      const currentStep = normalized === 'Completed' ? 5 : normalized === 'Located' ? 3 : 1;
+
+      let shelf = patch.shelfLocation.trim();
+      let rack = patch.rack.trim();
+      let box = patch.box.trim();
+      let position = patch.position.trim();
+
+      const liveBefore = await getRequest(id);
+      if ((!shelf || !rack || !box || !position) && liveBefore?.recordId) {
+        try {
+          const archives = await listArchives();
+          const archive = archives.find((row) => row.id === liveBefore.recordId);
+          if (archive) {
+            if (!shelf) shelf = (archive.shelf || '').trim();
+            if (!rack) rack = (archive.rack || '').trim();
+            if (!box) box = (archive.box || '').trim();
+            if (!position) position = (archive.pos || '').trim();
+          }
+        } catch {
+          // Archive lookup is optional enrichment for the lecturer message.
+        }
+      }
+
       setRequests((current) =>
         current.map((item) =>
           item.id === id
             ? {
                 ...item,
-                officerStatus: patch.officerStatus,
+                officerStatus: normalized,
                 officerNote: patch.officerNote,
-                shelf: patch.shelfLocation,
-                rack: patch.rack,
-                box: patch.box,
-                position: patch.position,
+                shelf,
+                rack,
+                box,
+                position,
                 status: currentStep >= 5 ? 'Verified' : currentStep <= 1 ? 'Pending Review' : 'In Progress',
               }
             : item
         )
       );
-      setFlash('The lecturer has been notified of this update.');
       await patchRequest(id, {
         currentStep,
-        officerStatus: patch.officerStatus,
+        officerStatus: normalized,
         officerNote: patch.officerNote,
-        stepStatusText: patch.officerNote || patch.officerStatus,
-        shelfLocation: patch.shelfLocation,
-        rack: patch.rack,
-        box: patch.box,
-        position: patch.position,
+        stepStatusText: normalized,
+        shelfLocation: shelf,
+        rack,
+        box,
+        position,
       });
+
+      const live = (await getRequest(id)) || liveBefore;
+      let notified = false;
+      if (live?.requesterId) {
+        const locationBits = [shelf, rack, box, position].filter(Boolean).join(' · ');
+        const officerFeedback = patch.officerNote.trim();
+        const title =
+          normalized === 'Located'
+            ? 'Booklet located'
+            : normalized === 'Completed'
+              ? 'Request completed'
+              : 'Request update';
+        const body =
+          normalized === 'Located'
+            ? [
+                `Your request for ${live.courseCode} has been located in the store.`,
+                locationBits ? `Location: ${locationBits}.` : null,
+                officerFeedback ? `Officer note: ${officerFeedback}` : null,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            : normalized === 'Completed'
+              ? [
+                  `Your request for ${live.courseCode} is completed. You may collect / use the booklet.`,
+                  officerFeedback ? `Officer note: ${officerFeedback}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+              : officerFeedback || `Your request for ${live.courseCode} was updated.`;
+
+        notified = await createNotification({
+          userId: live.requesterId,
+          audience: 'lecturer',
+          title,
+          body,
+          requestId: id,
+        });
+      }
+
+      if (normalized === 'Completed' && live?.recordId) {
+        try {
+          const archives = await listArchives();
+          const archive = archives.find((row) => row.id === live.recordId);
+          if (archive) {
+            await updateArchive({
+              ...archive,
+              custodyStatus: 'Taken out',
+              lastVerifiedAt: new Date().toISOString(),
+              isRequested: true,
+              vaultStatus: 'Checked Out',
+            });
+          }
+        } catch {
+          // Custody column may be missing until Phase 5 SQL is applied.
+        }
+      }
+
+      setFlash(
+        notified
+          ? 'Update saved. The lecturer has been notified.'
+          : 'Update saved. Lecturer notification could not be delivered — check notifications SQL/policies.'
+      );
+      return { notified };
     };
 
     return {

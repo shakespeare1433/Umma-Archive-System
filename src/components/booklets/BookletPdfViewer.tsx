@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
-import { BOOKLET_COPY } from '../../constants/booklets';
+import { BOOKLET_COPY, bookletHasPdf, formatPhysicalLocation } from '../../constants/booklets';
 import { Booklet } from '../../types';
 import { createBookletSignedUrl, friendlyBookletError, logBookletAction } from '../../services/bookletService';
 import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
@@ -32,6 +32,12 @@ export const BookletPdfViewer: React.FC<Props> = ({
   const total = Math.max(end, 1);
   const [page, setPage] = useState(start);
   const [opening, setOpening] = useState(false);
+  const locationLine = formatPhysicalLocation(booklet);
+  const statusLabel = bookletHasPdf(booklet) ? BOOKLET_COPY.pdfReady : BOOKLET_COPY.notDigitised;
+
+  useEffect(() => {
+    setPage(start);
+  }, [start, booklet.id, booklet.registrationNo]);
 
   const openPdf = async () => {
     if (!booklet.pdfPath) {
@@ -58,6 +64,10 @@ export const BookletPdfViewer: React.FC<Props> = ({
         <Text style={styles.placeholder}>{BOOKLET_COPY.previewPlaceholder}</Text>
         <Text style={styles.pageLabel}>{BOOKLET_COPY.pagesOf(start, end)}</Text>
         <Text style={styles.pageLabel}>{BOOKLET_COPY.pageOf(page, total)}</Text>
+        <Text style={styles.statusLabel}>{statusLabel}</Text>
+        <Text style={styles.locationLabel} numberOfLines={2}>
+          {locationLine}
+        </Text>
       </View>
       <View style={styles.pager}>
         <TouchableOpacity
@@ -164,6 +174,21 @@ function createStyles(palette: ReturnType<typeof lecturerPalette>) {
       fontSize: control.body,
       fontWeight: '700',
       fontFamily: typography.fontFamilySans,
+    },
+    statusLabel: {
+      marginTop: spacing.xs,
+      color: tokens.onPrimary,
+      fontSize: 12,
+      fontWeight: '700',
+      opacity: 0.9,
+    },
+    locationLabel: {
+      color: tokens.onPrimary,
+      fontSize: 12,
+      fontWeight: '600',
+      textAlign: 'center',
+      paddingHorizontal: spacing.md,
+      opacity: 0.95,
     },
     openBtn: {
       marginTop: spacing.md,

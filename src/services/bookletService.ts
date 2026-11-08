@@ -2,8 +2,10 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { ALL_PROGRAMMES, ALL_SCHOOLS, schoolSearchNames } from '../data/catalog';
 import { getSupabase } from '../lib/supabase';
+import { searchArchives } from './archiveService';
 import {
   ALL_SESSIONS,
+  ArchivedScript,
   Booklet,
   BookletDownloadAction,
   BookletSort,
@@ -57,12 +59,28 @@ export function hasActiveBookletFilter(filter: SearchFilterState): boolean {
     (filter.faculty && filter.faculty !== ALL_SCHOOLS) ||
       (filter.programme && filter.programme !== ALL_PROGRAMMES) ||
       (filter.session && filter.session !== ALL_SESSIONS) ||
+      filter.quickQuery?.trim() ||
       filter.unitCode.trim() ||
       filter.unitName.trim() ||
+      filter.bundleCode.trim() ||
       filter.studentName.trim() ||
       filter.admissionNumber.trim()
   );
 }
+
+function ilikePattern(raw: string): string {
+  return `%${raw.trim().replace(/[%_,]/g, ' ')}%`;
+}
+
+function applyBookletQuickQuery<T extends { or: (filters: string) => T }>(query: T, quickQuery: string): T {
+  const q = quickQuery.trim();
+  if (!q) return query;
+  const pattern = `"${ilikePattern(q)}"`;
+  return query.or(
+    `unit_code.ilike.${pattern},unit_name.ilike.${pattern},student_name.ilike.${pattern},registration_no.ilike.${pattern}`
+  );
+}
+
 
 export function bookletFileName(booklet: Booklet): string {
   const unit = sanitiseSegment(booklet.unitCode) || 'unit';
@@ -122,8 +140,51 @@ function fromRow(row: BookletRow): Booklet {
     startPage: row.start_page,
     endPage: row.end_page,
     scriptCount: row.script_count,
+    shelf: null,
+    rack: null,
+    box: null,
+    position: null,
     createdAt: row.created_at,
   };
+}
+
+interface ArchiveLocationRow {
+  id: string;
+  shelf: string;
+  rack: string;
+  box: string;
+  position: string;
+}
+
+async function attachArchiveLocations(rows: Booklet[]): Promise<Booklet[]> {
+  const archiveIds = [
+    ...new Set(rows.map((row) => row.archiveId).filter((id): id is string => Boolean(id))),
+  ];
+  if (!archiveIds.length) return rows;
+
+  const { data, error } = await getSupabase()
+    .from('examination_archives')
+    .select('id, shelf, rack, box, position')
+    .in('id', archiveIds);
+  if (error || !data?.length) return rows;
+
+  const byId = new Map<string, ArchiveLocationRow>();
+  for (const row of data as ArchiveLocationRow[]) {
+    byId.set(row.id, row);
+  }
+
+  return rows.map((row) => {
+    if (!row.archiveId) return row;
+    const loc = byId.get(row.archiveId);
+    if (!loc) return row;
+    return {
+      ...row,
+      shelf: loc.shelf,
+      rack: loc.rack,
+      box: loc.box,
+      position: loc.position,
+    };
+  });
 }
 
 function fromScript(script: ScriptRow, booklet: BookletRow): Booklet {
@@ -135,6 +196,174 @@ function fromScript(script: ScriptRow, booklet: BookletRow): Booklet {
     endPage: script.end_page,
     archiveId: script.archive_id ?? booklet.archive_id,
   };
+}
+
+interface ArchivedScriptRow {
+  id: string;
+  archive_id: string;
+  booklet_id: string | null;
+  student_name: string;
+  registration_number: string;
+  first_page: number | null;
+  last_page: number | null;
+  booklets?: BookletRow | BookletRow[] | null;
+}
+
+function fromArchivedScript(script: ArchivedScriptRow, booklet: BookletRow): Booklet {
+  return {
+    ...fromRow(booklet),
+    studentName: script.student_name || booklet.student_name,
+    registrationNo: script.registration_number || booklet.registration_no,
+    startPage: script.first_page,
+    endPage: script.last_page,
+    archiveId: script.archive_id || booklet.archive_id,
+  };
+}
+
+function wantsStudentScriptSearch(filter: SearchFilterState): boolean {
+  return Boolean(
+    filter.quickQuery?.trim() || filter.studentName.trim() || filter.admissionNumber.trim()
+  );
+}
+
+async function searchArchivedScripts(
+  filter: SearchFilterState,
+  options: { sort: BookletSort },
+  pageSize: number,
+  from: number,
+  to: number
+): Promise<BookletSearchPage | null> {
+  if (!wantsStudentScriptSearch(filter)) return null;
+
+  let query = getSupabase()
+    .from('archived_scripts')
+    .select(
+      'id, archive_id, booklet_id, student_name, registration_number, first_page, last_page, booklets:booklet_id(*)',
+      { count: 'exact' }
+    );
+
+  const schools = schoolSearchNames(filter.faculty);
+  if (schools.length === 1) {
+    query = query.eq('booklets.school', schools[0]);
+  } else if (schools.length > 1) {
+    query = query.in('booklets.school', schools);
+  }
+  if (filter.programme && filter.programme !== ALL_PROGRAMMES) {
+    query = query.ilike('booklets.programme', `%${filter.programme.trim()}%`);
+  }
+  if (filter.session && filter.session !== ALL_SESSIONS) {
+    query = query.eq('booklets.academic_session', filter.session);
+  }
+  if (filter.unitCode.trim()) {
+    query = query.ilike('booklets.unit_code', `%${filter.unitCode.trim()}%`);
+  }
+  if (filter.unitName.trim()) {
+    query = query.ilike('booklets.unit_name', `%${filter.unitName.trim()}%`);
+  }
+
+  const quick = filter.quickQuery?.trim();
+  if (quick) {
+    const pattern = `"${ilikePattern(quick)}"`;
+    query = query.or(`student_name.ilike.${pattern},registration_number.ilike.${pattern}`);
+  }
+  if (filter.studentName.trim()) {
+    query = query.ilike('student_name', `%${filter.studentName.trim()}%`);
+  }
+  if (filter.admissionNumber.trim()) {
+    query = query.ilike('registration_number', `%${filter.admissionNumber.trim()}%`);
+  }
+
+  if (options.sort === 'unit_code') {
+    query = query.order('unit_code', { referencedTable: 'booklets', ascending: true });
+  } else if (options.sort === 'session') {
+    query = query.order('academic_session', { referencedTable: 'booklets', ascending: false });
+  } else {
+    query = query.order('created_at', { ascending: false });
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  if (error) return null;
+
+  const scripts = (data ?? []) as ArchivedScriptRow[];
+  const missingArchiveIds = [
+    ...new Set(
+      scripts
+        .filter((script) => !firstRelated(script.booklets) && script.archive_id)
+        .map((script) => script.archive_id)
+    ),
+  ];
+  const bookletByArchive = new Map<string, BookletRow>();
+  if (missingArchiveIds.length) {
+    const linked = await getSupabase().from('booklets').select('*').in('archive_id', missingArchiveIds);
+    for (const row of (linked.data ?? []) as BookletRow[]) {
+      if (row.archive_id) bookletByArchive.set(row.archive_id, row);
+    }
+  }
+
+  const mapped = scripts
+    .map((script) => {
+      const booklet = firstRelated(script.booklets) || bookletByArchive.get(script.archive_id) || null;
+      return booklet ? fromArchivedScript(script, booklet) : null;
+    })
+    .filter((row): row is Booklet => Boolean(row));
+
+  if (!mapped.length) return null;
+  const rows = await attachArchiveLocations(mapped);
+  return { rows, total: count ?? rows.length };
+}
+
+export async function listArchivedScripts(input: {
+  archiveId?: string | null;
+  bookletId?: string | null;
+}): Promise<ArchivedScript[]> {
+  if (!input.archiveId && !input.bookletId) return [];
+
+  let query = getSupabase()
+    .from('archived_scripts')
+    .select('id, archive_id, booklet_id, student_name, registration_number, first_page, last_page')
+    .order('first_page', { ascending: true });
+
+  if (input.archiveId) query = query.eq('archive_id', input.archiveId);
+  else if (input.bookletId) query = query.eq('booklet_id', input.bookletId);
+
+  const { data, error } = await query;
+  if (error) {
+    // Table may not exist until the Phase 3 SQL is applied; fall back quietly.
+    return listBookletScriptsFallback(input);
+  }
+
+  return ((data ?? []) as ArchivedScriptRow[]).map((row) => ({
+    id: row.id,
+    archiveId: row.archive_id,
+    bookletId: row.booklet_id,
+    studentName: row.student_name,
+    registrationNumber: row.registration_number,
+    firstPage: row.first_page,
+    lastPage: row.last_page,
+  }));
+}
+
+async function listBookletScriptsFallback(input: {
+  archiveId?: string | null;
+  bookletId?: string | null;
+}): Promise<ArchivedScript[]> {
+  let query = getSupabase()
+    .from('booklet_scripts')
+    .select('id, archive_id, booklet_id, student_name, registration_no, start_page, end_page')
+    .order('start_page', { ascending: true });
+  if (input.archiveId) query = query.eq('archive_id', input.archiveId);
+  else if (input.bookletId) query = query.eq('booklet_id', input.bookletId);
+  const { data, error } = await query;
+  if (error || !data?.length) return [];
+  return (data as ScriptRow[]).map((row) => ({
+    id: row.id,
+    archiveId: row.archive_id || '',
+    bookletId: row.booklet_id,
+    studentName: row.student_name,
+    registrationNumber: row.registration_no,
+    firstPage: row.start_page,
+    lastPage: row.end_page,
+  }));
 }
 
 async function searchBookletScripts(
@@ -168,6 +397,11 @@ async function searchBookletScripts(
   if (filter.unitName.trim()) {
     query = query.ilike('booklets.unit_name', `%${filter.unitName.trim()}%`);
   }
+  const quick = filter.quickQuery?.trim();
+  if (quick) {
+    const pattern = `"${ilikePattern(quick)}"`;
+    query = query.or(`student_name.ilike.${pattern},registration_no.ilike.${pattern}`);
+  }
   if (filter.studentName.trim()) {
     query = query.ilike('student_name', `%${filter.studentName.trim()}%`);
   }
@@ -186,12 +420,13 @@ async function searchBookletScripts(
   const { data, error, count } = await query.range(from, to);
   if (error) return null;
 
-  const rows = ((data ?? []) as ScriptRow[])
+  const mapped = ((data ?? []) as ScriptRow[])
     .map((script) => {
       const booklet = firstRelated(script.booklets);
       return booklet ? fromScript(script, booklet) : null;
     })
     .filter((row): row is Booklet => Boolean(row));
+  const rows = await attachArchiveLocations(mapped);
 
   return { rows, total: count ?? rows.length };
 }
@@ -204,8 +439,22 @@ export async function searchBooklets(
   const from = options.page * pageSize;
   const to = from + pageSize - 1;
 
+  // Bundle ID lives on examination_archives, so route that filter through archives.
+  if (filter.bundleCode.trim()) {
+    const archiveRows = await searchArchivesAsBooklets(filter);
+    return {
+      rows: archiveRows.slice(from, to + 1),
+      total: archiveRows.length,
+    };
+  }
+
+  // Prefer Phase 3 archived_scripts for student/registration hits (opens at first_page).
+  const archivedPage = await searchArchivedScripts(filter, options, pageSize, from, to);
+  if (archivedPage && archivedPage.rows.length > 0) return archivedPage;
+
+  // Legacy booklet_scripts index (still written on upload for compatibility).
   const scriptPage = await searchBookletScripts(filter, options, pageSize, from, to);
-  if (scriptPage) return scriptPage;
+  if (scriptPage && scriptPage.rows.length > 0) return scriptPage;
 
   let query = getSupabase().from('booklets').select('*', { count: 'exact' });
 
@@ -221,6 +470,7 @@ export async function searchBooklets(
   if (filter.session && filter.session !== ALL_SESSIONS) {
     query = query.eq('academic_session', filter.session);
   }
+  query = applyBookletQuickQuery(query, filter.quickQuery || '');
   if (filter.unitCode.trim()) {
     query = query.ilike('unit_code', `%${filter.unitCode.trim()}%`);
   }
@@ -244,10 +494,84 @@ export async function searchBooklets(
 
   const { data, error, count } = await query.range(from, to);
   if (error) throw new Error(friendlyBookletError(error));
+
+  let rows = await attachArchiveLocations(((data ?? []) as BookletRow[]).map(fromRow));
+
+  // If booklet mirrors are missing, still return physical archive hits.
+  if (rows.length === 0) {
+    const archiveRows = await searchArchivesAsBooklets(filter);
+    const start = from;
+    const end = to + 1;
+    return {
+      rows: archiveRows.slice(start, end),
+      total: archiveRows.length,
+    };
+  }
+
   return {
-    rows: ((data ?? []) as BookletRow[]).map(fromRow),
+    rows,
     total: count ?? 0,
   };
+}
+
+async function searchArchivesAsBooklets(filter: SearchFilterState): Promise<Booklet[]> {
+  const archives = await searchArchives({
+    school: filter.faculty,
+    programme: filter.programme,
+    session: filter.session,
+    unitCode: filter.unitCode,
+    unitName: filter.unitName,
+    studentName: filter.studentName,
+    admissionNumber: filter.admissionNumber,
+    bundleId: filter.bundleCode,
+    quickQuery: filter.quickQuery,
+  });
+  if (!archives.length) return [];
+
+  const archiveIds = archives.map((row) => row.id);
+  const linked = await getSupabase().from('booklets').select('*').in('archive_id', archiveIds);
+  const byArchive = new Map<string, Booklet>();
+  for (const row of ((linked.data ?? []) as BookletRow[])) {
+    if (row.archive_id) byArchive.set(row.archive_id, fromRow(row));
+  }
+
+  return archives.map((archive) => {
+    const location = {
+      shelf: archive.shelf,
+      rack: archive.rack,
+      box: archive.box,
+      position: archive.pos,
+    };
+    const existing = byArchive.get(archive.id);
+    if (existing) {
+      return {
+        ...existing,
+        studentName: archive.studentName || existing.studentName,
+        registrationNo: archive.admissionNumber || existing.registrationNo,
+        ...location,
+      };
+    }
+    return {
+      id: `archive:${archive.id}`,
+      unitCode: archive.courseCode,
+      unitName: archive.courseName,
+      programme: archive.programme || '',
+      school: archive.faculty,
+      academicSession: archive.session,
+      registrationNo: archive.admissionNumber,
+      studentName: archive.studentName,
+      pdfPath: null,
+      pageCount: null,
+      digitised: false,
+      uploadedBy: null,
+      archiveId: archive.id,
+      startPage: null,
+      endPage: null,
+      scriptCount: archive.scriptCount,
+      ...location,
+      createdAt: archive.archivedAt || new Date().toISOString(),
+    };
+  });
 }
 
 export async function listOfficerUploads(): Promise<Booklet[]> {
@@ -256,7 +580,7 @@ export async function listOfficerUploads(): Promise<Booklet[]> {
     .select('*')
     .order('created_at', { ascending: false });
   if (error) throw new Error(friendlyBookletError(error));
-  return ((data ?? []) as BookletRow[]).map(fromRow);
+  return attachArchiveLocations(((data ?? []) as BookletRow[]).map(fromRow));
 }
 
 export async function countDigitisedBooklets(): Promise<number> {
@@ -269,18 +593,72 @@ export async function countDigitisedBooklets(): Promise<number> {
 }
 
 export async function getBooklet(id: string): Promise<Booklet | null> {
-  const { data, error } = await getSupabase().from('booklets').select('*').eq('id', id).maybeSingle();
-  if (error) throw new Error(friendlyBookletError(error));
-  if (!data) return null;
-  return fromRow(data as BookletRow);
+  const archivePrefixed = id.startsWith('archive:') ? id.slice('archive:'.length) : null;
+  if (!archivePrefixed) {
+    const { data, error } = await getSupabase().from('booklets').select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(friendlyBookletError(error));
+    if (data) {
+      const [withLocation] = await attachArchiveLocations([fromRow(data as BookletRow)]);
+      return withLocation;
+    }
+  }
+
+  const archiveId = archivePrefixed || id;
+  const byArchive = await getSupabase()
+    .from('booklets')
+    .select('*')
+    .eq('archive_id', archiveId)
+    .maybeSingle();
+  if (byArchive.error) throw new Error(friendlyBookletError(byArchive.error));
+  if (byArchive.data) {
+    const [withLocation] = await attachArchiveLocations([fromRow(byArchive.data as BookletRow)]);
+    return withLocation;
+  }
+
+  // Direct fetch by id when booklet mirror is missing.
+  const { data: archiveRow, error: archiveError } = await getSupabase()
+    .from('examination_archives')
+    .select('*')
+    .eq('id', archiveId)
+    .maybeSingle();
+  if (archiveError) throw new Error(friendlyBookletError(archiveError));
+  if (!archiveRow) return null;
+
+  return {
+    id: `archive:${archiveId}`,
+    unitCode: archiveRow.unit_code,
+    unitName: archiveRow.unit_name,
+    programme: archiveRow.programme || '',
+    school: archiveRow.school,
+    academicSession: archiveRow.academic_session,
+    registrationNo: archiveRow.admission_number,
+    studentName: archiveRow.student_name,
+    pdfPath: null,
+    pageCount: null,
+    digitised: false,
+    uploadedBy: null,
+    archiveId,
+    startPage: null,
+    endPage: null,
+    scriptCount: archiveRow.script_count,
+    shelf: archiveRow.shelf,
+    rack: archiveRow.rack,
+    box: archiveRow.box,
+    position: archiveRow.position,
+    createdAt: archiveRow.archived_at,
+  };
 }
 
-export async function createBookletSignedUrl(pdfPath: string, retried = false): Promise<string> {
+export async function createBookletSignedUrl(
+  pdfPath: string,
+  retried = false,
+  ttlSec = BOOKLET_SIGNED_TTL_SEC
+): Promise<string> {
   const { data, error } = await getSupabase()
     .storage.from(BOOKLET_BUCKET)
-    .createSignedUrl(pdfPath, BOOKLET_SIGNED_TTL_SEC);
+    .createSignedUrl(pdfPath, ttlSec);
   if (error || !data?.signedUrl) {
-    if (!retried) return createBookletSignedUrl(pdfPath, true);
+    if (!retried) return createBookletSignedUrl(pdfPath, true, ttlSec);
     throw new Error(friendlyBookletError(error ?? new Error(BOOKLET_COPY.missingFile)));
   }
   return data.signedUrl;
@@ -530,19 +908,45 @@ async function replaceBookletScripts(
   const cleared = await getSupabase().from('booklet_scripts').delete().eq('booklet_id', bookletId);
   if (cleared.error) {
     if (cleared.error.message.toLowerCase().includes('booklet_scripts') || cleared.error.code === '42P01') {
+      // Continue — archived_scripts may still be writable.
+    } else {
+      throw new Error(friendlyBookletError(cleared.error));
+    }
+  } else {
+    const { error } = await getSupabase().from('booklet_scripts').insert(
+      students.map((student) => ({
+        booklet_id: bookletId,
+        archive_id: archiveId,
+        student_name: student.studentName,
+        registration_no: student.registrationNo,
+        start_page: student.startPage,
+        end_page: student.endPage,
+      }))
+    );
+    if (error) throw new Error(friendlyBookletError(error));
+  }
+
+  // Phase 3 index on examination_archives (first_page / last_page).
+  const clearedArchive = await getSupabase().from('archived_scripts').delete().eq('archive_id', archiveId);
+  if (clearedArchive.error) {
+    if (
+      clearedArchive.error.message.toLowerCase().includes('archived_scripts') ||
+      clearedArchive.error.code === '42P01' ||
+      clearedArchive.error.code === 'PGRST205'
+    ) {
       return;
     }
-    throw new Error(friendlyBookletError(cleared.error));
+    throw new Error(friendlyBookletError(clearedArchive.error));
   }
-  const { error } = await getSupabase().from('booklet_scripts').insert(
+  const { error: archiveInsertError } = await getSupabase().from('archived_scripts').insert(
     students.map((student) => ({
-      booklet_id: bookletId,
       archive_id: archiveId,
+      booklet_id: bookletId,
       student_name: student.studentName,
-      registration_no: student.registrationNo,
-      start_page: student.startPage,
-      end_page: student.endPage,
+      registration_number: student.registrationNo,
+      first_page: student.startPage,
+      last_page: student.endPage,
     }))
   );
-  if (error) throw new Error(friendlyBookletError(error));
+  if (archiveInsertError) throw new Error(friendlyBookletError(archiveInsertError));
 }

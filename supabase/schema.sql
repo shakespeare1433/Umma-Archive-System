@@ -25,12 +25,9 @@ create table if not exists public.academic_sessions (
 
 insert into public.schools (name) values
   ('School of Business and Technology'),
-  ('School of Nursing'),
   ('School of Nursing and Midwifery'),
   ('School of Education'),
-  ('School of Sheria and Law'),
-  ('School of Sheria'),
-  ('School of Law')
+  ('School of Law and Sheria')
 on conflict (name) do nothing;
 
 insert into public.programmes (school, code) values
@@ -39,21 +36,31 @@ insert into public.programmes (school, code) values
   ('School of Business and Technology', 'BCOM'),
   ('School of Business and Technology', 'BBM'),
   ('School of Business and Technology', 'BBIT'),
-  ('School of Education', 'History'),
-  ('School of Education', 'Kiswahili'),
   ('School of Education', 'English Literature'),
-  ('School of Education', 'Sciences'),
+  ('School of Education', 'Kiswahili Literature'),
+  ('School of Education', 'History'),
   ('School of Education', 'IRE'),
-  ('School of Education', 'Arabic')
+  ('School of Education', 'Sciences'),
+  ('School of Nursing and Midwifery', 'Nursing'),
+  ('School of Nursing and Midwifery', 'Midwifery'),
+  ('School of Law and Sheria', 'Law'),
+  ('School of Law and Sheria', 'Islamic Studies'),
+  ('School of Law and Sheria', 'Sheria')
 on conflict (school, code) do nothing;
 
 insert into public.academic_sessions (name) values
-  ('2025 January – May'),
-  ('2025 May – September'),
-  ('2025 September – December'),
-  ('2026 January – May'),
-  ('2026 May – September'),
-  ('2026 September – December')
+  ('2023 Jan – Apr'),
+  ('2023 May – Aug'),
+  ('2023 Sep – Dec'),
+  ('2024 Jan – Apr'),
+  ('2024 May – Aug'),
+  ('2024 Sep – Dec'),
+  ('2025 Jan – Apr'),
+  ('2025 May – Aug'),
+  ('2025 Sep – Dec'),
+  ('2026 Jan – Apr'),
+  ('2026 May – Aug'),
+  ('2026 Sep – Dec')
 on conflict (name) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -245,6 +252,7 @@ create table if not exists public.examination_archives (
   unit_name text not null,
   student_name text not null default '',
   admission_number text not null default '',
+  bundle_id text not null default '',
   script_count integer not null default 1,
   shelf text not null,
   rack text not null,
@@ -259,6 +267,9 @@ create table if not exists public.examination_archives (
 
 alter table public.examination_archives
   add column if not exists archived_by uuid references public.profiles (id);
+
+alter table public.examination_archives
+  add column if not exists bundle_id text not null default '';
 
 create index if not exists examination_archives_search_idx
   on public.examination_archives (school, programme, academic_session, unit_code);
@@ -302,6 +313,7 @@ create or replace function public.search_examination_archives(
   p_unit_name text default null,
   p_student_name text default null,
   p_admission_number text default null,
+  p_bundle_id text default null,
   p_query text default null
 )
 returns setof public.examination_archives
@@ -326,11 +338,15 @@ as $$
     )
     and (p_student_name is null or p_student_name = '' or a.student_name ilike '%' || p_student_name || '%')
     and (p_admission_number is null or p_admission_number = '' or a.admission_number ilike '%' || p_admission_number || '%')
+    and (p_bundle_id is null or btrim(p_bundle_id) = '' or a.bundle_id ilike '%' || btrim(p_bundle_id) || '%')
     and (
       p_query is null or btrim(p_query) = ''
       or a.unit_code ilike '%' || p_query || '%'
       or a.unit_name ilike '%' || p_query || '%'
       or a.programme ilike '%' || p_query || '%'
+      or a.student_name ilike '%' || p_query || '%'
+      or a.admission_number ilike '%' || p_query || '%'
+      or a.bundle_id ilike '%' || p_query || '%'
     )
   order by a.archived_at desc;
 $$;
@@ -543,16 +559,21 @@ values (
     'School of Business and Technology',
     'School of Nursing and Midwifery',
     'School of Education',
-    'School of Sheria',
-    'School of Law'
+    'School of Law and Sheria'
   ],
   array[
-    '2025 January – May',
-    '2025 May – September',
-    '2025 September – December',
-    '2026 January – May',
-    '2026 May – September',
-    '2026 September – December'
+    '2023 Jan – Apr',
+    '2023 May – Aug',
+    '2023 Sep – Dec',
+    '2024 Jan – Apr',
+    '2024 May – Aug',
+    '2024 Sep – Dec',
+    '2025 Jan – Apr',
+    '2025 May – Aug',
+    '2025 Sep – Dec',
+    '2026 Jan – Apr',
+    '2026 May – Aug',
+    '2026 Sep – Dec'
   ]
 )
 on conflict (id) do nothing;
@@ -594,6 +615,34 @@ create policy programmes_select on public.programmes for select to authenticated
 drop policy if exists sessions_select on public.academic_sessions;
 create policy sessions_select on public.academic_sessions for select to authenticated using (true);
 
+grant insert, update, delete on public.schools to authenticated;
+grant insert, update, delete on public.programmes to authenticated;
+grant insert, update, delete on public.academic_sessions to authenticated;
+
+drop policy if exists schools_write_admin on public.schools;
+create policy schools_write_admin
+  on public.schools
+  for all
+  to authenticated
+  using (public.profile_role(auth.uid()) = 'Admin')
+  with check (public.profile_role(auth.uid()) = 'Admin');
+
+drop policy if exists programmes_write_admin on public.programmes;
+create policy programmes_write_admin
+  on public.programmes
+  for all
+  to authenticated
+  using (public.profile_role(auth.uid()) = 'Admin')
+  with check (public.profile_role(auth.uid()) = 'Admin');
+
+drop policy if exists sessions_write_admin on public.academic_sessions;
+create policy sessions_write_admin
+  on public.academic_sessions
+  for all
+  to authenticated
+  using (public.profile_role(auth.uid()) = 'Admin')
+  with check (public.profile_role(auth.uid()) = 'Admin');
+
 -- Keep archive request flags in sync with retrieval_requests. Lecturers do not update archive rows.
 create or replace function public.on_retrieval_request()
 returns trigger
@@ -612,6 +661,14 @@ begin
     values (
       'officer',
       'New lecturer request',
+      new.requester_name || ' requested ' || new.course_code,
+      new.id
+    );
+
+    insert into public.notifications (audience, title, body, request_id)
+    values (
+      'admin',
+      'Lecturer: New lecturer request',
       new.requester_name || ' requested ' || new.course_code,
       new.id
     );
@@ -641,6 +698,19 @@ begin
         new.requester_id,
         'user',
         'Request status updated',
+        new.course_code || ' is now ' || coalesce(new.officer_status, 'updated')
+        || case
+             when coalesce(new.shelf_location, '') <> '' then '. Booklet found at ' || new.shelf_location
+             else ''
+           end
+        || '.',
+        new.id
+      );
+
+      insert into public.notifications (audience, title, body, request_id)
+      values (
+        'admin',
+        'Officer: Request status updated',
         new.course_code || ' is now ' || coalesce(new.officer_status, 'updated')
         || case
              when coalesce(new.shelf_location, '') <> '' then '. Booklet found at ' || new.shelf_location

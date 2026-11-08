@@ -1,7 +1,7 @@
 export type UserRole = 'Lecturer' | 'Examination Officer' | 'Admin';
 
 export type LecturerTab = 'Home' | 'Search' | 'History' | 'Profile';
-export type OfficerTab = 'Home' | 'Uploads' | 'Archive' | 'Profile';
+export type OfficerTab = 'Home' | 'Requests' | 'Archive' | 'Uploads' | 'Profile';
 export type AdminTab = 'Overview' | 'Users' | 'Activity' | 'Settings';
 
 export interface SearchFilterState {
@@ -10,6 +10,8 @@ export interface SearchFilterState {
   session: string;
   academicYear: string;
   semester: string;
+  /** Free-text bar: unit code/name, student name, or registration number. */
+  quickQuery: string;
   unitCode: string;
   unitName: string;
   bundleCode: string;
@@ -32,6 +34,28 @@ export type RootStackParamList = {
     endPage?: number;
     studentName?: string;
     registrationNo?: string;
+  };
+  LecturerPdfViewer: {
+    bookletId: string;
+    pdfPath: string;
+    startPage?: number;
+    endPage?: number;
+    pageCount?: number | null;
+    studentName?: string;
+    registrationNo?: string;
+    unitCode?: string;
+    unitName?: string;
+  };
+  LecturerRequestPhysical: {
+    bookletId: string;
+    archiveId?: string | null;
+    studentName?: string;
+    registrationNo?: string;
+    school?: string;
+    programme?: string;
+    academicSession?: string;
+    unitCode?: string;
+    unitName?: string;
   };
 };
 
@@ -58,6 +82,10 @@ export type VaultLifecycle =
   | 'Staged in Vault'
   | 'Dispatched'
   | 'Checked Out';
+/** Physical custody of the original booklet in the vault. */
+export type CustodyStatus = 'On shelf' | 'Taken out' | 'Moved';
+/** Lecturer request workflow for Phase 5. */
+export type RequestWorkflowStatus = 'Pending' | 'Located' | 'Completed';
 
 export interface ExamBookletRecord {
   id: string;
@@ -83,12 +111,15 @@ export interface ArchivedExaminationRecord {
   programme?: string;
   studentName: string;
   admissionNumber: string;
+  bundleId?: string;
   shelf: string;
   rack: string;
   box: string;
   pos: string;
   status: VaultItemStatus;
   vaultStatus: VaultLifecycle;
+  custodyStatus?: CustodyStatus;
+  lastVerifiedAt?: string | null;
   scriptCount: number;
   isRequested?: boolean;
   archivedAt?: string;
@@ -177,7 +208,23 @@ export interface Booklet {
   startPage?: number | null;
   endPage?: number | null;
   scriptCount?: number | null;
+  /** Physical vault location from examination_archives (when linked). */
+  shelf?: string | null;
+  rack?: string | null;
+  box?: string | null;
+  position?: string | null;
   createdAt: string;
+}
+
+/** Student page index inside a combined PDF (Phase 3). */
+export interface ArchivedScript {
+  id: string;
+  archiveId: string;
+  bookletId: string | null;
+  studentName: string;
+  registrationNumber: string;
+  firstPage: number | null;
+  lastPage: number | null;
 }
 
 export interface BookletDownload {

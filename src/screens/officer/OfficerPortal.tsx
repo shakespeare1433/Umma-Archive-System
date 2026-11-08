@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Alert, View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { OfficerTab } from '../../types';
 import { AppTabBar } from '../../components/AppTabBar';
 import { useAuth } from '../../context/AuthContext';
+import { officerPalette, useTheme } from '../../context/ThemeContext';
 import { ARCHIVE_BAR, ExamArchiveBar } from '../../components/ExamArchiveBar';
-import { CustodyProvider, PAGE } from './custody';
+import { CustodyProvider } from './custody';
 import { OfficerHomeScreen } from './OfficerHomeScreen';
 import { OfficerArchiveFormScreen } from './OfficerArchiveFormScreen';
+import { OfficerRequestsScreen } from './OfficerRequestsScreen';
 import { OfficerUploadsScreen } from './OfficerUploadsScreen';
 import { OfficerProfileView } from './OfficerProfileView';
 import {
@@ -26,7 +28,7 @@ type Route =
   | { name: 'tabs' }
   | { name: 'search'; query: string }
   | { name: 'log' }
-  | { name: 'location'; bookletId?: string }
+  | { name: 'location'; archiveId?: string; bookletId?: string }
   | { name: 'request'; id: string }
   | { name: 'verify'; id: string }
   | { name: 'retrieve'; id: string }
@@ -35,8 +37,9 @@ type Route =
 
 const OFFICER_TABS: { key: OfficerTab; label: string; icon: string }[] = [
   { key: 'Home', label: 'Home', icon: 'home-outline' },
-  { key: 'Uploads', label: 'Uploads', icon: 'upload-outline' },
+  { key: 'Requests', label: 'Requests', icon: 'clipboard-text-outline' },
   { key: 'Archive', label: 'Archive', icon: 'archive-outline' },
+  { key: 'Uploads', label: 'Uploads', icon: 'cloud-upload-outline' },
   { key: 'Profile', label: 'Profile', icon: 'account-outline' },
 ];
 
@@ -50,6 +53,9 @@ export const OfficerPortal: React.FC = () => {
 
 const OfficerShell: React.FC = () => {
   const { logout } = useAuth();
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
+  const styles = useMemo(() => createPortalStyles(palette), [palette]);
   const [tab, setTab] = useState<OfficerTab>('Home');
   const [stack, setStack] = useState<Route[]>([{ name: 'tabs' }]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -85,6 +91,7 @@ const OfficerShell: React.FC = () => {
             <View style={styles.menu}>
               <MenuItem
                 label="Edit Profile"
+                styles={styles}
                 onPress={() => {
                   setMenuOpen(false);
                   setProfileIntent('edit');
@@ -92,6 +99,7 @@ const OfficerShell: React.FC = () => {
               />
               <MenuItem
                 label="Change Password"
+                styles={styles}
                 onPress={() => {
                   setMenuOpen(false);
                   setProfileIntent('password');
@@ -99,6 +107,7 @@ const OfficerShell: React.FC = () => {
               />
               <MenuItem
                 label="Privacy and Security"
+                styles={styles}
                 onPress={() => {
                   setMenuOpen(false);
                   setProfileIntent('privacy');
@@ -106,6 +115,7 @@ const OfficerShell: React.FC = () => {
               />
               <MenuItem
                 label="Log Out"
+                styles={styles}
                 danger
                 onPress={() => {
                   setMenuOpen(false);
@@ -125,18 +135,25 @@ const OfficerShell: React.FC = () => {
               onLogBatch={() => push({ name: 'log' })}
               onArchive={() => goTab('Archive')}
               onUpdateLocation={() => push({ name: 'location' })}
-              onOpenUploads={() => goTab('Uploads')}
+              onOpenRequests={() => goTab('Requests')}
               onOpenRequest={(id) => push({ name: 'request', id })}
               onVerify={(id) => push({ name: 'verify', id })}
               onRetrieve={(id) => push({ name: 'retrieve', id })}
               onOpenBooklet={(id) => push({ name: 'booklet', id })}
             />
           ) : null}
-          {route.name === 'tabs' && tab === 'Uploads' ? (
-            <OfficerUploadsScreen onScan={() => goTab('Archive')} />
+          {route.name === 'tabs' && tab === 'Requests' ? (
+            <OfficerRequestsScreen onOpenRequest={(id) => push({ name: 'request', id })} />
           ) : null}
           {route.name === 'tabs' && tab === 'Archive' ? (
             <OfficerArchiveFormScreen onClose={() => goTab('Home')} onDone={() => goTab('Uploads')} />
+          ) : null}
+          {route.name === 'tabs' && tab === 'Uploads' ? (
+            <OfficerUploadsScreen
+              onScan={() => goTab('Archive')}
+              onOpenBooklet={(id) => push({ name: 'booklet', id })}
+              onUpdateLocation={(id) => push({ name: 'location', bookletId: id })}
+            />
           ) : null}
           {route.name === 'tabs' && tab === 'Profile' ? (
             <ProfilePane intent={profileIntent} onIntentHandled={() => setProfileIntent(null)} />
@@ -153,7 +170,12 @@ const OfficerShell: React.FC = () => {
           ) : null}
           {route.name === 'log' ? <OfficerLogBatchScreen onBack={back} onDone={() => goTab('Home')} /> : null}
           {route.name === 'location' ? (
-            <OfficerLocationScreen bookletId={route.bookletId} onBack={back} onDone={back} />
+            <OfficerLocationScreen
+              archiveId={route.archiveId}
+              bookletId={route.bookletId}
+              onBack={back}
+              onDone={back}
+            />
           ) : null}
           {route.name === 'request' ? (
             <OfficerRequestDetailScreen
@@ -179,7 +201,8 @@ const OfficerShell: React.FC = () => {
           {route.name === 'notifications' ? (
             <OfficerNotificationsScreen
               onBack={back}
-              onOpenRequests={() => goTab('Home')}
+              onOpenRequests={() => goTab('Requests')}
+              onOpenRequest={(id) => push({ name: 'request', id })}
               onVerify={(id) => push({ name: 'verify', id })}
               onArchive={() => goTab('Archive')}
             />
@@ -211,7 +234,17 @@ function ProfilePane({
   return <OfficerProfileView intent={intent} onIntentHandled={onIntentHandled} />;
 }
 
-function MenuItem({ label, onPress, danger }: { label: string; onPress: () => void; danger?: boolean }) {
+function MenuItem({
+  label,
+  onPress,
+  danger,
+  styles,
+}: {
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+  styles: ReturnType<typeof createPortalStyles>;
+}) {
   return (
     <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.8}>
       <Text style={[styles.menuText, danger && styles.menuDanger]}>{label}</Text>
@@ -219,38 +252,42 @@ function MenuItem({ label, onPress, danger }: { label: string; onPress: () => vo
   );
 }
 
-const styles = StyleSheet.create({
-  stage: {
-    flex: 1,
-    backgroundColor: '#D5DBE6',
-    alignItems: 'center',
-  },
-  phone: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 430,
-    backgroundColor: ARCHIVE_BAR,
-  },
-  top: { backgroundColor: ARCHIVE_BAR },
-  body: { flex: 1, backgroundColor: PAGE },
-  tabSafe: { backgroundColor: PAGE },
-  menuWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 },
-  menuBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  menu: {
-    position: 'absolute',
-    top: 96,
-    right: 16,
-    width: 210,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 6,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  menuItem: { paddingHorizontal: 14, paddingVertical: 12 },
-  menuText: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
-  menuDanger: { color: '#DC2626' },
-});
+function createPortalStyles(palette: ReturnType<typeof officerPalette>) {
+  return StyleSheet.create({
+    stage: {
+      flex: 1,
+      backgroundColor: palette.page,
+      alignItems: 'center',
+    },
+    phone: {
+      flex: 1,
+      width: '100%',
+      maxWidth: 430,
+      backgroundColor: ARCHIVE_BAR,
+    },
+    top: { backgroundColor: ARCHIVE_BAR },
+    body: { flex: 1, backgroundColor: palette.page },
+    tabSafe: { backgroundColor: palette.page },
+    menuWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20 },
+    menuBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+    menu: {
+      position: 'absolute',
+      top: 96,
+      right: 16,
+      width: 210,
+      backgroundColor: palette.card,
+      borderRadius: 14,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: palette.line,
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: palette.dark ? 0.35 : 0.12,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+    menuItem: { paddingHorizontal: 14, paddingVertical: 12 },
+    menuText: { fontSize: 14, fontWeight: '700', color: palette.ink },
+    menuDanger: { color: '#DC2626' },
+  });
+}

@@ -12,12 +12,13 @@ import {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { useAuth } from '../../context/AuthContext';
+import { adminPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
 import { listOfficerUploads, listRecentDownloads } from '../../services/bookletService';
 import { borderRadius, colors as tokens, spacing } from '../../theme';
 
 type ActivityKind = 'upload' | 'download' | 'login' | 'staff' | 'request';
-type ActivityFilter = 'all' | 'login' | 'upload';
+type ActivityFilter = 'all' | 'login' | 'upload' | 'download' | 'request';
 type RangeKey = '7d' | '30d' | 'all';
 
 interface ActivityItem {
@@ -30,8 +31,10 @@ interface ActivityItem {
 
 const FILTERS: { key: ActivityFilter; label: string; icon: React.ComponentProps<typeof Feather>['name'] }[] = [
   { key: 'all', label: 'All Activity', icon: 'activity' },
-  { key: 'login', label: 'Logins', icon: 'log-in' },
   { key: 'upload', label: 'Uploads', icon: 'upload' },
+  { key: 'download', label: 'Downloads', icon: 'download' },
+  { key: 'request', label: 'Requests', icon: 'map-pin' },
+  { key: 'login', label: 'Logins', icon: 'log-in' },
 ];
 
 const RANGES: { key: RangeKey; label: string }[] = [
@@ -73,15 +76,27 @@ function formatAgo(iso: string) {
   return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-export const AdminActivityScreen: React.FC = () => {
+export const AdminActivityScreen: React.FC<{
+  initialFilter?: ActivityFilter;
+  onInitialFilterConsumed?: () => void;
+}> = ({ initialFilter, onInitialFilterConsumed }) => {
+  const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const { users } = useAuth();
   const { requests } = useVault();
   const [items, setItems] = useState<ActivityItem[]>([]);
-  const [filter, setFilter] = useState<ActivityFilter>('all');
-  const [range, setRange] = useState<RangeKey>('all');
+  const [filter, setFilter] = useState<ActivityFilter>(initialFilter ?? 'all');
+  const [range, setRange] = useState<RangeKey>(initialFilter === 'download' ? '7d' : 'all');
   const [rangeOpen, setRangeOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!initialFilter) return;
+    setFilter(initialFilter);
+    setRange(initialFilter === 'download' ? '7d' : 'all');
+    onInitialFilterConsumed?.();
+  }, [initialFilter, onInitialFilterConsumed]);
 
   const load = useCallback(async () => {
     try {
@@ -144,6 +159,8 @@ export const AdminActivityScreen: React.FC = () => {
       if (new Date(item.createdAt).getTime() < since) return false;
       if (filter === 'all') return true;
       if (filter === 'upload') return item.kind === 'upload';
+      if (filter === 'download') return item.kind === 'download';
+      if (filter === 'request') return item.kind === 'request';
       return item.kind === 'login';
     });
   }, [items, filter, range]);
@@ -151,7 +168,7 @@ export const AdminActivityScreen: React.FC = () => {
   const rangeLabel = RANGES.find((item) => item.key === range)?.label ?? 'Last 7 days';
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: palette.page }]}>
       <LecturerTopHeader subtitle="Admin Portal" />
       <ScrollView
         contentContainerStyle={styles.content}
@@ -168,54 +185,73 @@ export const AdminActivityScreen: React.FC = () => {
           />
         }
       >
-        <Text style={styles.pageTitle}>System Activity</Text>
-        <Text style={styles.pageSub}>Monitor user actions and system events</Text>
+        <Text style={[styles.pageTitle, { color: palette.ink }]}>System Activity</Text>
+        <Text style={[styles.pageSub, { color: palette.muted }]}>Monitor user actions and system events</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           {FILTERS.map((item) => {
             const on = filter === item.key;
             return (
               <TouchableOpacity
                 key={item.key}
-                style={[styles.chip, on && styles.chipOn]}
+                style={[
+                  styles.chip,
+                  { backgroundColor: palette.card, borderColor: palette.line },
+                  on && styles.chipOn,
+                ]}
                 onPress={() => setFilter(item.key)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
               >
-                <Feather name={item.icon} size={14} color={on ? tokens.onPrimary : tokens.onSurfaceVariant} />
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{item.label}</Text>
+                <Feather name={item.icon} size={14} color={on ? tokens.onPrimary : palette.muted} />
+                <Text style={[styles.chipText, { color: palette.ink }, on && styles.chipTextOn]}>
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
-        <TouchableOpacity style={styles.rangeBtn} onPress={() => setRangeOpen(true)} accessibilityRole="button">
-          <Text style={styles.rangeText}>{rangeLabel}</Text>
-          <Feather name="chevron-down" size={16} color={tokens.onSurfaceVariant} />
+        <TouchableOpacity
+          style={[styles.rangeBtn, { backgroundColor: palette.card, borderColor: palette.line }]}
+          onPress={() => setRangeOpen(true)}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.rangeText, { color: palette.ink }]}>{rangeLabel}</Text>
+          <Feather name="chevron-down" size={16} color={palette.muted} />
         </TouchableOpacity>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         {visible.length === 0 ? (
-          <Text style={styles.empty}>
+          <Text style={[styles.empty, { color: palette.muted }]}>
             {filter === 'login'
               ? 'Sign-in history is not stored yet.'
-              : 'No activity in this period.'}
+              : filter === 'download'
+                ? 'No lecturer downloads in this period.'
+                : filter === 'request'
+                  ? 'No locate requests in this period.'
+                  : filter === 'upload'
+                    ? 'No archived PDF uploads in this period.'
+                    : 'No activity in this period.'}
           </Text>
         ) : (
           visible.map((item) => {
             const tone = KIND_STYLE[item.kind];
             return (
-              <View key={item.id} style={styles.card}>
+              <View
+                key={item.id}
+                style={[styles.card, { backgroundColor: palette.card, borderColor: palette.line }]}
+              >
                 <View style={[styles.iconWell, { backgroundColor: tone.bg }]}>
                   <MaterialCommunityIcons name={tone.glyph} size={20} color={tone.icon} />
                 </View>
                 <View style={styles.cardCopy}>
-                  <Text style={styles.title}>{item.title}</Text>
-                  <Text style={styles.detail} numberOfLines={2}>
+                  <Text style={[styles.title, { color: palette.ink }]}>{item.title}</Text>
+                  <Text style={[styles.detail, { color: palette.muted }]} numberOfLines={2}>
                     {item.detail}
                   </Text>
                 </View>
-                <Text style={styles.when}>{formatAgo(item.createdAt)}</Text>
+                <Text style={[styles.when, { color: palette.muted }]}>{formatAgo(item.createdAt)}</Text>
               </View>
             );
           })
@@ -224,7 +260,7 @@ export const AdminActivityScreen: React.FC = () => {
 
       <Modal visible={rangeOpen} transparent animationType="fade" onRequestClose={() => setRangeOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setRangeOpen(false)}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { backgroundColor: palette.card }]}>
             {RANGES.map((item) => (
               <TouchableOpacity
                 key={item.key}
@@ -234,7 +270,15 @@ export const AdminActivityScreen: React.FC = () => {
                   setRangeOpen(false);
                 }}
               >
-                <Text style={[styles.sheetLabel, range === item.key && styles.sheetLabelOn]}>{item.label}</Text>
+                <Text
+                  style={[
+                    styles.sheetLabel,
+                    { color: palette.ink },
+                    range === item.key && styles.sheetLabelOn,
+                  ]}
+                >
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>

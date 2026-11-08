@@ -24,7 +24,6 @@ import { useLecturerNotice } from '../context/LecturerNoticeContext';
 import { useTheme } from '../context/ThemeContext';
 import { clearNotifications, listNotifications, markNotificationsRead } from '../services/notificationService';
 import { AppNotification } from '../types';
-import { colors as tokens } from '../theme';
 
 interface LecturerTopHeaderProps {
   subtitle?: string;
@@ -55,6 +54,13 @@ export const LecturerTopHeader: React.FC<LecturerTopHeaderProps> = ({
   const [selected, setSelected] = useState<AppNotification | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const page = dark ? '#0F172A' : '#F4F7FC';
+  const card = dark ? '#152238' : '#FFFFFF';
+  const ink = dark ? '#F8FAFC' : '#0F172A';
+  const field = dark ? '#0F172A' : '#F4F6F9';
+  const line = dark ? '#334155' : '#E8EDF3';
+  const muted = dark ? '#94A3B8' : '#94A3B8';
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -147,32 +153,56 @@ export const LecturerTopHeader: React.FC<LecturerTopHeaderProps> = ({
   return (
     <>
       <ExamArchiveBar subtitle={subtitle} onBell={handleBellPress} showDot={unread > 0} />
-      <Modal visible={open} animationType="slide" onRequestClose={selected ? () => setSelected(null) : closeScreen} statusBarTranslucent>
-        <SafeAreaView style={[styles.screen, dark && styles.screenDark]} edges={['top', 'bottom']}>
-          <View style={styles.topBar}>
+      <Modal
+        visible={open}
+        animationType="slide"
+        onRequestClose={selected ? () => setSelected(null) : closeScreen}
+        statusBarTranslucent
+      >
+        <View style={[styles.stage, { backgroundColor: page }]}>
+          <SafeAreaView style={styles.topSafe} edges={['top']}>
+            <ExamArchiveBar
+              subtitle={subtitle}
+              onBell={closeScreen}
+              showDot={unread > 0}
+            />
+          </SafeAreaView>
+
+          <View style={[styles.backBar, { backgroundColor: card, borderBottomColor: line }]}>
             <TouchableOpacity
-              style={styles.back}
+              style={[styles.backBtn, { backgroundColor: field }]}
               onPress={selected ? () => setSelected(null) : closeScreen}
+              activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel={selected ? 'Back to notifications' : 'Close notifications'}
             >
-              <Feather name="arrow-left" size={20} color="#FFFFFF" />
+              <Feather name="arrow-left" size={18} color={ink} />
             </TouchableOpacity>
-            <View style={styles.topCopy}>
-              <Text style={styles.topTitle}>{selected ? 'Notification' : 'Notifications'}</Text>
-              <Text style={styles.topSub}>{subtitle}</Text>
-            </View>
+            <Text style={[styles.backTitle, { color: ink }]} numberOfLines={1}>
+              {selected ? 'Notification' : 'Notifications'}
+            </Text>
             {!selected ? (
               <TouchableOpacity
-                style={styles.clearBtn}
                 onPress={handleClear}
                 disabled={notes.length === 0}
+                activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Clear notifications"
+                style={styles.backRight}
               >
-                <Text style={[styles.clearText, notes.length === 0 && styles.clearTextOff]}>Clear</Text>
+                <Text
+                  style={[
+                    styles.backRightText,
+                    { color: ink },
+                    notes.length === 0 && { color: muted },
+                  ]}
+                >
+                  Clear
+                </Text>
               </TouchableOpacity>
-            ) : null}
+            ) : (
+              <View style={styles.backRight} />
+            )}
           </View>
 
           {selected ? (
@@ -203,63 +233,50 @@ export const LecturerTopHeader: React.FC<LecturerTopHeaderProps> = ({
               onPressNote={openNote}
             />
           )}
-        </SafeAreaView>
+          <SafeAreaView edges={['bottom']} style={{ backgroundColor: page }} />
+        </View>
       </Modal>
     </>
   );
 };
 
 const styles = StyleSheet.create({
-  screen: {
+  stage: {
     flex: 1,
-    backgroundColor: tokens.background,
   },
-  screenDark: {
-    backgroundColor: '#0F172A',
-  },
-  topBar: {
+  topSafe: {
     backgroundColor: ARCHIVE_BAR,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
+  },
+  backBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
   },
-  back: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.16)',
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 8,
   },
-  topCopy: {
+  backTitle: {
     flex: 1,
-  },
-  topTitle: {
-    color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
   },
-  topSub: {
-    color: '#E2E8F0',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  clearBtn: {
-    minHeight: 42,
-    paddingHorizontal: 10,
+  backRight: {
+    minHeight: 34,
+    minWidth: 52,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clearText: {
-    color: '#FFFFFF',
+  backRightText: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  clearTextOff: {
-    color: 'rgba(255,255,255,0.4)',
   },
   detailPage: {
     paddingHorizontal: 12,

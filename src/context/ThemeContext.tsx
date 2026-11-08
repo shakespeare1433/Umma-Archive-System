@@ -68,3 +68,13 @@ export function lecturerPalette(theme: ColorScheme) {
     soft: dark ? '#334155' : '#E2E8F0',
   };
 }
+
+/** Same palette for officer portal so Appearance (light/dark) applies app-wide for officers. */
+export function officerPalette(theme: ColorScheme) {
+  return lecturerPalette(theme);
+}
+
+/** Same palette for admin portal so Appearance (light/dark) applies app-wide for admins. */
+export function adminPalette(theme: ColorScheme) {
+  return lecturerPalette(theme);
+}

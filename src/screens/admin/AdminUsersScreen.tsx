@@ -8,13 +8,13 @@ import {
   TextInput,
   Alert,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
   Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { useAuth } from '../../context/AuthContext';
+import { adminPalette, useTheme } from '../../context/ThemeContext';
 import { AppUser, UserRole } from '../../types';
 import { borderRadius, colors as tokens, control, spacing } from '../../theme';
 
@@ -52,6 +52,8 @@ function initials(name: string) {
 }
 
 export const AdminUsersScreen: React.FC = () => {
+  const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const { users, upsertUser } = useAuth();
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'All' | UserRole>('All');
@@ -193,22 +195,28 @@ export const AdminUsersScreen: React.FC = () => {
     ]);
   };
 
+  const fieldStyle = {
+    backgroundColor: palette.field,
+    borderColor: palette.line,
+    color: palette.ink,
+  };
+
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: palette.page }]}>
       <LecturerTopHeader subtitle="Admin Portal" />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={styles.pageTitle}>Staff Management</Text>
-        <Text style={styles.pageSub}>Manage user accounts and roles</Text>
-        <View style={styles.searchWrap}>
-          <Feather name="search" size={16} color={tokens.placeholder} />
+      <KeyboardScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.pageTitle, { color: palette.ink }]}>Staff Management</Text>
+        <Text style={[styles.pageSub, { color: palette.muted }]}>Manage user accounts and roles</Text>
+        <View style={[styles.searchWrap, { backgroundColor: palette.card, borderColor: palette.line }]}>
+          <Feather name="search" size={16} color={palette.muted} />
           <TextInput
-            style={styles.search}
+            style={[styles.search, { color: palette.ink }]}
             placeholder="Search by name, email or role..."
-            placeholderTextColor={tokens.placeholder}
+            placeholderTextColor={palette.muted}
             value={query}
             onChangeText={setQuery}
           />
-          <Feather name="sliders" size={16} color={tokens.outline} />
+          <Feather name="sliders" size={16} color={palette.muted} />
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
@@ -217,12 +225,18 @@ export const AdminUsersScreen: React.FC = () => {
             return (
               <TouchableOpacity
                 key={item.key}
-                style={[styles.chip, on && styles.chipOn]}
+                style={[
+                  styles.chip,
+                  { backgroundColor: palette.card, borderColor: palette.line },
+                  on && styles.chipOn,
+                ]}
                 onPress={() => setRoleFilter(item.key)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
               >
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{item.label}</Text>
+                <Text style={[styles.chipText, { color: palette.ink }, on && styles.chipTextOn]}>
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -234,25 +248,22 @@ export const AdminUsersScreen: React.FC = () => {
         </TouchableOpacity>
 
         {visible.length === 0 ? (
-          <Text style={styles.empty}>No staff match this search.</Text>
+          <Text style={[styles.empty, { color: palette.muted }]}>No staff match this search.</Text>
         ) : (
           visible.map((user) => (
             <StaffRow key={user.id} user={user} onPress={() => openUser(user)} />
           ))
         )}
-      </ScrollView>
+      </KeyboardScrollView>
 
       <Modal visible={showModal} transparent animationType="fade" onRequestClose={closeModal}>
-        <KeyboardAvoidingView
-          style={styles.backdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.sheet}>
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              <Text style={styles.sheetTitle}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { backgroundColor: palette.card, maxHeight: '90%' }]}>
+            <KeyboardScrollView bottomOffset={16} showsVerticalScrollIndicator={false}>
+              <Text style={[styles.sheetTitle, { color: palette.ink }]}>
                 {editing ? 'Replace account' : `New ${form.role}`}
               </Text>
-              <Text style={styles.sheetHint}>
+              <Text style={[styles.sheetHint, { color: palette.muted }]}>
                 {editing
                   ? `This replaces the login for ${editing.name}. The old email and password will stop working.`
                   : form.role === 'Lecturer'
@@ -260,59 +271,67 @@ export const AdminUsersScreen: React.FC = () => {
                     : 'Enter the examination officer’s full name, phone number, and address. They will see these details on their profile after they sign in.'}
               </Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldStyle]}
                 placeholder="Full name"
+                placeholderTextColor={palette.muted}
                 value={form.name}
                 onChangeText={(name) => setForm((current) => ({ ...current, name }))}
               />
               {form.role === 'Lecturer' ? (
                 <>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, fieldStyle]}
                     placeholder="School"
+                    placeholderTextColor={palette.muted}
                     value={form.school}
                     onChangeText={(school) => setForm((current) => ({ ...current, school }))}
                   />
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, fieldStyle]}
                     placeholder="Department"
+                    placeholderTextColor={palette.muted}
                     value={form.department}
                     onChangeText={(department) => setForm((current) => ({ ...current, department }))}
                   />
                 </>
               ) : null}
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldStyle]}
                 placeholder="Phone number"
+                placeholderTextColor={palette.muted}
                 keyboardType="phone-pad"
                 value={form.phone}
                 onChangeText={(phone) => setForm((current) => ({ ...current, phone }))}
               />
               <TextInput
-                style={[styles.input, styles.addressInput]}
+                style={[styles.input, styles.addressInput, fieldStyle]}
                 placeholder="Address"
+                placeholderTextColor={palette.muted}
                 multiline
                 value={form.address}
                 onChangeText={(address) => setForm((current) => ({ ...current, address }))}
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldStyle]}
                 placeholder="Email"
+                placeholderTextColor={palette.muted}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={form.email}
                 onChangeText={(email) => setForm((current) => ({ ...current, email }))}
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldStyle]}
                 placeholder="Username (optional)"
+                placeholderTextColor={palette.muted}
                 autoCapitalize="none"
                 value={form.username}
                 onChangeText={(username) => setForm((current) => ({ ...current, username }))}
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, fieldStyle]}
                 placeholder={editing ? 'New password' : 'Password'}
+                placeholderTextColor={palette.muted}
                 secureTextEntry
                 value={form.password}
                 onChangeText={(password) => setForm((current) => ({ ...current, password }))}
@@ -322,10 +341,22 @@ export const AdminUsersScreen: React.FC = () => {
                   {STAFF_ROLES.map((role) => (
                     <TouchableOpacity
                       key={role}
-                      style={[styles.roleChip, form.role === role && styles.roleChipOn]}
+                      style={[
+                        styles.roleChip,
+                        { backgroundColor: palette.field, borderColor: palette.line },
+                        form.role === role && styles.roleChipOn,
+                      ]}
                       onPress={() => setForm((current) => ({ ...current, role }))}
                     >
-                      <Text style={[styles.roleChipText, form.role === role && styles.roleChipTextOn]}>{role}</Text>
+                      <Text
+                        style={[
+                          styles.roleChipText,
+                          { color: palette.ink },
+                          form.role === role && styles.roleChipTextOn,
+                        ]}
+                      >
+                        {role}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -336,21 +367,27 @@ export const AdminUsersScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={closeModal}>
-                <Text style={styles.cancel}>Cancel</Text>
+                <Text style={[styles.cancel, { color: palette.muted }]}>Cancel</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
 };
 
 function StaffRow({ user, onPress }: { user: AppUser; onPress: () => void }) {
+  const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const tone = ROLE_TONE[user.role];
   return (
     <TouchableOpacity
-      style={[styles.card, user.status === 'Suspended' && styles.cardSuspended]}
+      style={[
+        styles.card,
+        { backgroundColor: palette.card, borderColor: palette.line },
+        user.status === 'Suspended' && styles.cardSuspended,
+      ]}
       onPress={onPress}
       activeOpacity={0.85}
       accessibilityRole="button"
@@ -363,10 +400,10 @@ function StaffRow({ user, onPress }: { user: AppUser; onPress: () => void }) {
         </View>
       )}
       <View style={styles.cardCopy}>
-        <Text style={styles.name} numberOfLines={1}>
+        <Text style={[styles.name, { color: palette.ink }]} numberOfLines={1}>
           {user.name}
         </Text>
-        <Text style={styles.email} numberOfLines={1}>
+        <Text style={[styles.email, { color: palette.muted }]} numberOfLines={1}>
           {user.email}
         </Text>
       </View>

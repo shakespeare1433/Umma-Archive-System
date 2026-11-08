@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { AppearancePicker } from '../../components/AppearancePicker';
@@ -304,7 +305,7 @@ export const OfficerProfileView: React.FC<{
 
       <Modal visible={showEditProfileModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScroll}>
+          <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.modalScroll}>
             <View style={[styles.modalCard, dark && styles.cardDark]}>
               <Text style={[styles.modalHeading, dark && styles.textLight]}>Edit Profile</Text>
               <Field label="Full name" value={draft.name} onChangeText={(name) => setDraft({ ...draft, name })} />
@@ -338,13 +339,13 @@ export const OfficerProfileView: React.FC<{
                 </TouchableOpacity>
               </View>
             </View>
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
       </Modal>
 
       <Modal visible={showPasswordModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScroll}>
+          <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.modalScroll}>
             <View style={[styles.modalCard, dark && styles.cardDark]}>
               <Text style={[styles.modalHeading, dark && styles.textLight]}>Change Password</Text>
               <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secure />
@@ -367,13 +368,13 @@ export const OfficerProfileView: React.FC<{
                 </TouchableOpacity>
               </View>
             </View>
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
       </Modal>
 
       <Modal visible={showPrivacyModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScroll}>
+          <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.modalScroll}>
             <View style={[styles.modalCard, dark && styles.cardDark]}>
               <Text style={[styles.modalHeading, dark && styles.textLight]}>Privacy and Security</Text>
               <Text style={[styles.privacyCopy, dark && styles.mutedLight]}>
@@ -397,7 +398,7 @@ export const OfficerProfileView: React.FC<{
                 </TouchableOpacity>
               </View>
             </View>
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
       </Modal>
     </View>

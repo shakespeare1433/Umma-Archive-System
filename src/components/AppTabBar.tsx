@@ -27,7 +27,7 @@ export const AppTabBar: React.FC<Props> = ({ tabs, activeTab, onTabChange }) => 
       <View style={[styles.bar, dark && styles.barDark]}>
         {tabs.map((tab) => {
           const active = activeTab === tab.key;
-          const color = active ? '#FFFFFF' : '#64748B';
+          const color = active ? '#FFFFFF' : dark ? '#94A3B8' : '#64748B';
           return (
             <TouchableOpacity
               key={tab.key}
@@ -49,7 +49,10 @@ export const AppTabBar: React.FC<Props> = ({ tabs, activeTab, onTabChange }) => 
                   </View>
                 ) : null}
               </View>
-              <Text style={active ? styles.activeLabel : styles.label} numberOfLines={1}>
+              <Text
+                style={[active ? styles.activeLabel : styles.label, !active && dark && styles.labelDark]}
+                numberOfLines={1}
+              >
                 {tab.label}
               </Text>
             </TouchableOpacity>
@@ -108,6 +111,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   label: { fontSize: 10, fontWeight: '600', color: '#64748B' },
+  labelDark: { color: '#94A3B8' },
   activeLabel: { flexShrink: 1, fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
   badge: {
     position: 'absolute',

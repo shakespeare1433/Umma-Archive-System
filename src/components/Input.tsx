@@ -20,6 +20,8 @@ export const Input: React.FC<InputProps> = ({
   label,
   isPassword = false,
   error,
+  onFocus,
+  onBlur,
   ...props
 }) => {
   const [isFocused, setIsFocused] = useState(false);
@@ -39,8 +41,14 @@ export const Input: React.FC<InputProps> = ({
           style={styles.textInput}
           placeholderTextColor="#94A3B8"
           secureTextEntry={isPassword && !showPassword}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          onFocus={(event) => {
+            setIsFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setIsFocused(false);
+            onBlur?.(event);
+          }}
           autoCapitalize="none"
           {...props}
         />

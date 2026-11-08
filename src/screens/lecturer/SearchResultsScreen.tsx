@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerStackHeader } from '../../components/booklets/LecturerStackHeader';
 import { BookletResultCard } from '../../components/booklets/BookletResultCard';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
@@ -41,7 +42,7 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
   const palette = lecturerPalette(theme);
   const styles = useMemo(() => createStyles(palette), [theme]);
   const search = useBookletSearch(route.params.filter);
-  const { requestMissingBooklet } = useVault();
+  const { requestMissingBooklet, saveFoundBooklet } = useVault();
   const [sortOpen, setSortOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -131,7 +132,7 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
           </TouchableOpacity>
         </View>
       ) : search.items.length === 0 ? (
-        <View style={styles.centerState}>
+        <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.centerState}>
           <MaterialCommunityIcons name="file-search-outline" size={56} color={tokens.secondary} />
           <Text style={styles.emptyTitle}>{BOOKLET_COPY.emptyTitle}</Text>
           <Text style={styles.emptyBody}>{BOOKLET_COPY.emptyBody}</Text>
@@ -171,7 +172,7 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
           >
             <Text style={styles.secondaryBtnText}>{BOOKLET_COPY.changeFilters}</Text>
           </TouchableOpacity>
-        </View>
+        </KeyboardScrollView>
       ) : (
         <FlatList
           data={search.items}
@@ -182,15 +183,21 @@ export const SearchResultsScreen: React.FC<Props> = ({ navigation, route }) => {
             <BookletResultCard
               booklet={item}
               downloading={downloadingId === item.id}
-              onPress={() =>
+              onPress={() => {
+                saveFoundBooklet(
+                  item.unitCode,
+                  item.unitName || item.studentName || 'Examination booklet',
+                  item.school || item.programme || 'Archive',
+                  `Opened ${new Date().toLocaleString()}`
+                );
                 navigation.navigate('LecturerBookletDetails', {
                   bookletId: item.id,
                   startPage: item.startPage ?? undefined,
                   endPage: item.endPage ?? undefined,
                   studentName: item.studentName,
                   registrationNo: item.registrationNo,
-                })
-              }
+                });
+              }}
               onDownload={() => {
                 void saveOne(item);
               }}

@@ -9,11 +9,15 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
+import { adminPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
 import { ALL_FACULTIES, ALL_SESSIONS } from '../../types';
 
 export const AdminVaultScreen: React.FC = () => {
+  const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const { records, settings, addRecord } = useVault();
   const [show, setShow] = useState(false);
   const [courseCode, setCourseCode] = useState('');
@@ -50,26 +54,35 @@ export const AdminVaultScreen: React.FC = () => {
     setAdmissionNumber('');
   };
 
+  const fieldStyle = {
+    backgroundColor: palette.field,
+    borderColor: palette.line,
+    color: palette.ink,
+  };
+
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: palette.page }]}>
       <LecturerTopHeader subtitle="Admin Portal" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Records</Text>
+          <Text style={[styles.title, { color: palette.ink }]}>Records</Text>
           <TouchableOpacity style={styles.addBtn} onPress={() => setShow(true)}>
             <Text style={styles.addBtnText}>Add record</Text>
           </TouchableOpacity>
         </View>
         {records.map((rec) => (
-          <View key={rec.id} style={styles.card}>
+          <View
+            key={rec.id}
+            style={[styles.card, { backgroundColor: palette.card, borderColor: palette.line }]}
+          >
             <Text style={styles.code}>
               {rec.courseCode} • {rec.faculty}
             </Text>
-            <Text style={styles.name}>{rec.courseName}</Text>
-            <Text style={styles.meta}>
+            <Text style={[styles.name, { color: palette.ink }]}>{rec.courseName}</Text>
+            <Text style={[styles.meta, { color: palette.muted }]}>
               {rec.studentName} • {rec.admissionNumber}
             </Text>
-            <Text style={styles.meta}>
+            <Text style={[styles.meta, { color: palette.muted }]}>
               {rec.session} • {rec.vaultStatus}
             </Text>
           </View>
@@ -77,19 +90,51 @@ export const AdminVaultScreen: React.FC = () => {
       </ScrollView>
       <Modal visible={show} transparent animationType="fade">
         <View style={styles.backdrop}>
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>New vault record</Text>
-            <TextInput style={styles.input} placeholder="Unit code" value={courseCode} onChangeText={setCourseCode} />
-            <TextInput style={styles.input} placeholder="Unit name" value={courseName} onChangeText={setCourseName} />
-            <TextInput style={styles.input} placeholder="Student name" value={studentName} onChangeText={setStudentName} />
-            <TextInput style={styles.input} placeholder="Admission number" value={admissionNumber} onChangeText={setAdmissionNumber} />
-            <TextInput style={styles.input} placeholder="Shelf" value={shelf} onChangeText={setShelf} />
-            <TouchableOpacity style={styles.primary} onPress={save}>
-              <Text style={styles.primaryText}>Save</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShow(false)}>
-              <Text style={styles.cancel}>Cancel</Text>
-            </TouchableOpacity>
+          <View style={[styles.sheet, { backgroundColor: palette.card, maxHeight: '90%' }]}>
+            <KeyboardScrollView bottomOffset={16} showsVerticalScrollIndicator={false}>
+              <Text style={[styles.sheetTitle, { color: palette.ink }]}>New vault record</Text>
+              <TextInput
+                style={[styles.input, fieldStyle]}
+                placeholder="Unit code"
+                placeholderTextColor={palette.muted}
+                value={courseCode}
+                onChangeText={setCourseCode}
+              />
+              <TextInput
+                style={[styles.input, fieldStyle]}
+                placeholder="Unit name"
+                placeholderTextColor={palette.muted}
+                value={courseName}
+                onChangeText={setCourseName}
+              />
+              <TextInput
+                style={[styles.input, fieldStyle]}
+                placeholder="Student name"
+                placeholderTextColor={palette.muted}
+                value={studentName}
+                onChangeText={setStudentName}
+              />
+              <TextInput
+                style={[styles.input, fieldStyle]}
+                placeholder="Admission number"
+                placeholderTextColor={palette.muted}
+                value={admissionNumber}
+                onChangeText={setAdmissionNumber}
+              />
+              <TextInput
+                style={[styles.input, fieldStyle]}
+                placeholder="Shelf"
+                placeholderTextColor={palette.muted}
+                value={shelf}
+                onChangeText={setShelf}
+              />
+              <TouchableOpacity style={styles.primary} onPress={save}>
+                <Text style={styles.primaryText}>Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShow(false)}>
+                <Text style={[styles.cancel, { color: palette.muted }]}>Cancel</Text>
+              </TouchableOpacity>
+            </KeyboardScrollView>
           </View>
         </View>
       </Modal>

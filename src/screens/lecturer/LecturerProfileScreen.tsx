@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { AppearancePicker } from '../../components/AppearancePicker';
 import { useAuth } from '../../context/AuthContext';
@@ -271,7 +272,7 @@ export const LecturerProfileScreen: React.FC<Props> = ({ onLogoutPress }) => {
 
       <Modal visible={showEditProfileModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalScroll}>
+          <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.modalScroll}>
           <View style={[styles.modalCard, dark && styles.cardDark]}>
             <Text style={[styles.modalHeading, dark && styles.textLight]}>Edit Profile</Text>
 
@@ -340,12 +341,13 @@ export const LecturerProfileScreen: React.FC<Props> = ({ onLogoutPress }) => {
               </TouchableOpacity>
             </View>
           </View>
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
       </Modal>
 
       <Modal visible={showChangePasswordModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
+          <KeyboardScrollView bottomOffset={24} contentContainerStyle={styles.modalScroll}>
           <View style={[styles.modalCard, dark && styles.cardDark]}>
             <Text style={[styles.modalHeading, dark && styles.textLight]}>Password & Security</Text>
 
@@ -398,6 +400,7 @@ export const LecturerProfileScreen: React.FC<Props> = ({ onLogoutPress }) => {
               </TouchableOpacity>
             </View>
           </View>
+          </KeyboardScrollView>
         </View>
       </Modal>
 

@@ -3,11 +3,11 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TextInput,
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { useVault } from '../../context/VaultContext';
 import { ArchivedExaminationRecord } from '../../types';
@@ -50,7 +50,7 @@ export const OfficerVaultScreen: React.FC = () => {
   return (
     <View style={styles.screen}>
       <LecturerTopHeader subtitle="Exam Officer Portal" />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Shelf inventory</Text>
         <TextInput
           style={styles.search}
@@ -74,7 +74,7 @@ export const OfficerVaultScreen: React.FC = () => {
             </Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </KeyboardScrollView>
     </View>
   );
 };

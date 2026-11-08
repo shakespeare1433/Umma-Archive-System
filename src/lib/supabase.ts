@@ -7,15 +7,8 @@ const extra = (Constants.expoConfig?.extra ?? {}) as {
   supabaseAnonKey?: string;
 };
 
-const url =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  extra.supabaseUrl ||
-  'https://vrwmhxxhwrbbdrsvrhhc.supabase.co';
-
-const anonKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  extra.supabaseAnonKey ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyd21oeHhod3JiYmRyc3ZyaGhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQ5ODgsImV4cCI6MjEwNzA0MDk4OH0.954RYtx7SkK07KHceXq8UB_S066yHRq7jVI5F_ZsLI4';
+const url = process.env.EXPO_PUBLIC_SUPABASE_URL || extra.supabaseUrl || '';
+const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || extra.supabaseAnonKey || '';
 
 let client: SupabaseClient | null = null;
 

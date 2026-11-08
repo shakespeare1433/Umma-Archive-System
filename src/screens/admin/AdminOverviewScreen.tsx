@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } 
 import { Feather } from '@expo/vector-icons';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { useAuth } from '../../context/AuthContext';
+import { adminPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
 import { countDigitisedBooklets, listOfficerUploads, listRecentDownloads } from '../../services/bookletService';
 import { AppUser, UserRole } from '../../types';
@@ -86,9 +87,17 @@ function pieWedges(slices: { value: number; color: string }[], total: number) {
   return wedges.slice(0, PIE_SEGMENTS);
 }
 
-export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({ onOpenActivity }) => {
+export const AdminOverviewScreen: React.FC<{
+  onOpenActivity?: () => void;
+  onOpenUsers?: () => void;
+  onOpenArchivedPdfs?: () => void;
+  onOpenLocateRequests?: () => void;
+  onOpenDownloads?: () => void;
+}> = ({ onOpenActivity, onOpenUsers, onOpenArchivedPdfs, onOpenLocateRequests, onOpenDownloads }) => {
+  const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const { users } = useAuth();
-  const { requests, settings } = useVault();
+  const { requests } = useVault();
   const [archivedPdfs, setArchivedPdfs] = useState(0);
   const [downloadsToday, setDownloadsToday] = useState(0);
   const [activity, setActivity] = useState<HomeActivity[]>([]);
@@ -167,6 +176,7 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
       label: 'Active users',
       hint: suspended === 0 ? 'All accounts active' : `${suspended} suspended`,
       hintTone: suspended === 0 ? 'good' : 'muted',
+      onPress: onOpenUsers,
     },
     {
       key: 'pdfs',
@@ -176,6 +186,7 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
       label: 'Archived PDFs',
       hint: 'In the vault',
       hintTone: 'muted',
+      onPress: onOpenArchivedPdfs,
     },
     {
       key: 'locate',
@@ -185,6 +196,7 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
       label: 'Locate requests',
       hint: locateRequests === 0 ? 'All clear' : 'Awaiting officers',
       hintTone: locateRequests === 0 ? 'good' : 'muted',
+      onPress: onOpenLocateRequests,
     },
     {
       key: 'downloads',
@@ -194,15 +206,12 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
       label: 'Downloads today',
       hint: 'Lecturers',
       hintTone: 'muted',
+      onPress: onOpenDownloads,
     },
   ];
 
-  const yearLabel = settings.academicYear?.trim()
-    ? `${settings.academicYear} Academic Year · Admin control panel`
-    : 'Admin control panel';
-
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: palette.page }]}>
       <LecturerTopHeader subtitle="Admin Portal" />
       <ScrollView
         contentContainerStyle={styles.content}
@@ -219,40 +228,55 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
           />
         }
       >
-        <Text style={styles.title}>System overview</Text>
-        <Text style={styles.sub}>{yearLabel}</Text>
+        <Text style={[styles.title, { color: palette.ink }]}>System overview</Text>
 
         <View style={styles.grid}>
           {tiles.map((tile) => (
-            <View key={tile.key} style={styles.tile}>
+            <TouchableOpacity
+              key={tile.key}
+              style={[styles.tile, { backgroundColor: palette.card, borderColor: palette.line }]}
+              onPress={tile.onPress}
+              disabled={!tile.onPress}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`${tile.label}: ${tile.value}`}
+            >
               <View style={[styles.tileIcon, { backgroundColor: tile.iconBg }]}>
                 <Feather name={tile.icon} size={18} color={tokens.onPrimary} />
               </View>
-              <Text style={styles.tileValue}>{tile.value}</Text>
-              <Text style={styles.tileLabel}>{tile.label}</Text>
-              <Text style={[styles.tileHint, tile.hintTone === 'good' && styles.tileHintGood]}>{tile.hint}</Text>
-            </View>
+              <Text style={[styles.tileValue, { color: palette.ink }]}>{tile.value}</Text>
+              <Text style={[styles.tileLabel, { color: palette.ink }]}>{tile.label}</Text>
+              <Text
+                style={[
+                  styles.tileHint,
+                  { color: palette.muted },
+                  tile.hintTone === 'good' && styles.tileHintGood,
+                ]}
+              >
+                {tile.hint}
+              </Text>
+            </TouchableOpacity>
           ))}
         </View>
 
-        <View style={styles.roleCard}>
+        <View style={[styles.roleCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
           <View style={styles.roleHead}>
-            <Text style={styles.sectionTitle}>Users by role</Text>
-            <Text style={styles.roleTotalMeta}>{roleTotal} total</Text>
+            <Text style={[styles.sectionTitle, { color: palette.ink }]}>Users by role</Text>
+            <Text style={[styles.roleTotalMeta, { color: palette.muted }]}>{roleTotal} total</Text>
           </View>
           <View style={styles.roleBody}>
-            <DonutPie slices={slices} total={roleTotal} />
+            <DonutPie slices={slices} total={roleTotal} hole={palette.card} ink={palette.ink} muted={palette.muted} />
             <View style={styles.legend}>
               {slices.map((item) => {
                 const percent = roleTotal > 0 ? Math.round((item.value / roleTotal) * 100) : 0;
                 return (
                   <View key={item.key} style={styles.legendRow}>
                     <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                    <Text style={styles.legendLabel} numberOfLines={1}>
+                    <Text style={[styles.legendLabel, { color: palette.ink }]} numberOfLines={1}>
                       {item.label}
                     </Text>
-                    <Text style={styles.legendCount}>{item.value}</Text>
-                    <Text style={styles.legendPct}>{percent}%</Text>
+                    <Text style={[styles.legendCount, { color: palette.ink }]}>{item.value}</Text>
+                    <Text style={[styles.legendPct, { color: palette.muted }]}>{percent}%</Text>
                   </View>
                 );
               })}
@@ -261,7 +285,7 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
         </View>
 
         <View style={styles.activityHead}>
-          <Text style={styles.sectionTitle}>Recent activity</Text>
+          <Text style={[styles.sectionTitle, { color: palette.ink }]}>Recent activity</Text>
           {onOpenActivity ? (
             <TouchableOpacity onPress={onOpenActivity} accessibilityRole="button" accessibilityLabel="View all activity">
               <Text style={styles.viewAll}>View all</Text>
@@ -270,21 +294,28 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
         </View>
 
         {activity.length === 0 ? (
-          <View style={styles.activityCard}>
-            <Text style={styles.empty}>No recent activity.</Text>
+          <View style={[styles.activityCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
+            <Text style={[styles.empty, { color: palette.muted }]}>No recent activity.</Text>
           </View>
         ) : (
-          <View style={styles.activityCard}>
+          <View style={[styles.activityCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
             {activity.map((item, index) => (
-              <View key={item.id} style={[styles.activityRow, index > 0 && styles.activityRowBorder]}>
+              <View
+                key={item.id}
+                style={[
+                  styles.activityRow,
+                  index > 0 && styles.activityRowBorder,
+                  index > 0 && { borderTopColor: palette.line },
+                ]}
+              >
                 <View style={[styles.activityIcon, { backgroundColor: ACTIVITY_ICON[item.kind].bg }]}>
                   <Feather name={ACTIVITY_ICON[item.kind].name} size={16} color={tokens.onPrimary} />
                 </View>
                 <View style={styles.activityCopy}>
-                  <Text style={styles.activityTitle} numberOfLines={2}>
+                  <Text style={[styles.activityTitle, { color: palette.ink }]} numberOfLines={2}>
                     {item.headline}
                   </Text>
-                  <Text style={styles.activityMeta}>{item.byline}</Text>
+                  <Text style={[styles.activityMeta, { color: palette.muted }]}>{item.byline}</Text>
                 </View>
               </View>
             ))}
@@ -295,12 +326,24 @@ export const AdminOverviewScreen: React.FC<{ onOpenActivity?: () => void }> = ({
   );
 };
 
-function DonutPie({ slices, total }: { slices: { value: number; color: string }[]; total: number }) {
+function DonutPie({
+  slices,
+  total,
+  hole,
+  ink,
+  muted,
+}: {
+  slices: { value: number; color: string }[];
+  total: number;
+  hole: string;
+  ink: string;
+  muted: string;
+}) {
   const radius = PIE_SIZE / 2;
   const wedges = pieWedges(slices, total);
   return (
     <View style={styles.pieWrap} accessibilityRole="image" accessibilityLabel={`${total} users by role`}>
-      <View style={styles.pieDisc}>
+      <View style={[styles.pieDisc, { backgroundColor: hole }]}>
         {wedges.map((wedge, index) => (
           <View
             key={index}
@@ -320,9 +363,9 @@ function DonutPie({ slices, total }: { slices: { value: number; color: string }[
           />
         ))}
       </View>
-      <View style={styles.pieHole}>
-        <Text style={styles.pieTotal}>{total}</Text>
-        <Text style={styles.pieTotalLabel}>Users</Text>
+      <View style={[styles.pieHole, { backgroundColor: hole }]}>
+        <Text style={[styles.pieTotal, { color: ink }]}>{total}</Text>
+        <Text style={[styles.pieTotalLabel, { color: muted }]}>Users</Text>
       </View>
     </View>
   );
@@ -336,8 +379,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: tokens.primary,
     fontFamily: 'serif',
+    marginBottom: spacing.md,
   },
-  sub: { fontSize: 13, color: tokens.onSurfaceVariant, marginBottom: spacing.md, marginTop: 4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: spacing.md },
   tile: {
     width: '47%',

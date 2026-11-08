@@ -7,8 +7,10 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import {
   NotificationInbox,
   officerNoticeIcon,
@@ -16,13 +18,44 @@ import {
   officerNoticeTone,
 } from '../../components/NotificationCard';
 import { clearNotifications, listNotifications } from '../../services/notificationService';
-import { AppNotification } from '../../types';
+import { AppNotification, Booklet } from '../../types';
+import { useVault } from '../../context/VaultContext';
+import {
+  findArchiveAtLocation,
+  formatLocationCode,
+  racksForSchoolFromDb,
+  shelvesForSchoolFromDb,
+} from '../../services/locationService';
+import { updateArchiveLocation } from '../../services/archiveService';
+import { friendlyBookletError, getBooklet } from '../../services/bookletService';
+import { createNotification } from '../../services/notificationService';
+import { formatPhysicalLocation, bookletHasPdf } from '../../constants/booklets';
+import { InAppPdfModal } from '../../components/booklets/InAppPdfModal';
+import { useAuth } from '../../context/AuthContext';
+import { officerPalette, useTheme } from '../../context/ThemeContext';
 import { BackBar, BookletRow, FieldLabel, RequestCard } from './pieces';
 import {
-  ArchivedBooklet,
   NAVY,
   useCustody,
 } from './custody';
+
+function useOfficerChrome() {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
+  return {
+    palette,
+    fill: { backgroundColor: palette.page } as const,
+    page: { backgroundColor: palette.page } as const,
+    card: { backgroundColor: palette.card, borderColor: palette.line } as const,
+    ink: { color: palette.ink } as const,
+    muted: { color: palette.muted } as const,
+    field: {
+      backgroundColor: palette.card,
+      borderColor: palette.line,
+      color: palette.ink,
+    } as const,
+  };
+}
 
 export const OfficerSearchScreen: React.FC<{
   initialQuery: string;
@@ -32,6 +65,7 @@ export const OfficerSearchScreen: React.FC<{
   onRetrieve: (id: string) => void;
   onOpenBooklet: (id: string) => void;
 }> = ({ initialQuery, onBack, onOpenRequest, onVerify, onRetrieve, onOpenBooklet }) => {
+  const chrome = useOfficerChrome();
   const { requests, booklets } = useCustody();
   const [query, setQuery] = useState(initialQuery);
   const q = query.trim().toLowerCase();
@@ -65,19 +99,21 @@ export const OfficerSearchScreen: React.FC<{
   );
 
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar title="Search custody" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <KeyboardScrollView contentContainerStyle={[styles.page, chrome.page]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, chrome.field]}
           placeholder="Exam code, unit, lecturer, box"
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={chrome.palette.muted}
           value={query}
           onChangeText={setQuery}
           autoFocus
         />
-        <Text style={styles.group}>Requests ({matchedRequests.length})</Text>
-        {matchedRequests.length === 0 ? <Text style={styles.empty}>No matching requests.</Text> : null}
+        <Text style={[styles.group, chrome.ink]}>Requests ({matchedRequests.length})</Text>
+        {matchedRequests.length === 0 ? (
+          <Text style={[styles.empty, chrome.muted]}>No matching requests.</Text>
+        ) : null}
         {matchedRequests.map((request) => (
           <RequestCard
             key={request.id}
@@ -87,11 +123,11 @@ export const OfficerSearchScreen: React.FC<{
             onRetrieve={() => onRetrieve(request.id)}
           />
         ))}
-        <Text style={styles.group}>Archive ({matchedBooklets.length})</Text>
+        <Text style={[styles.group, chrome.ink]}>Archive ({matchedBooklets.length})</Text>
         {matchedBooklets.map((item) => (
           <BookletRow key={item.id} item={item} onPress={() => onOpenBooklet(item.id)} />
         ))}
-      </ScrollView>
+      </KeyboardScrollView>
     </View>
   );
 };
@@ -101,157 +137,378 @@ export const OfficerRequestDetailScreen: React.FC<{
   onBack: () => void;
   onVerify: () => void;
   onRetrieve: () => void;
-}> = ({ id, onBack, onVerify, onRetrieve }) => {
+}> = ({ id, onBack }) => {
+  const chrome = useOfficerChrome();
   const { requests, respondToRequest } = useCustody();
   const request = requests.find((item) => item.id === id);
-  const [status, setStatus] = useState(request?.officerStatus || 'Pending');
+  const liveStatus = (() => {
+    const raw = (request?.officerStatus || 'Pending').toLowerCase();
+    if (raw === 'completed' || raw === 'fulfilled') return 'Completed' as const;
+    if (raw === 'located' || raw.includes('ready')) return 'Located' as const;
+    return 'Pending' as const;
+  })();
   const [note, setNote] = useState(request?.officerNote || '');
-  const [shelf, setShelf] = useState(request?.shelf || '');
-  const [rack, setRack] = useState(request?.rack || '');
-  const [box, setBox] = useState(request?.box || '');
-  const [position, setPosition] = useState(request?.position || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [flash, setFlash] = useState('');
 
   if (!request) {
     return (
-      <View style={styles.fill}>
-        <BackBar title="Request" onBack={onBack} />
-        <Text style={styles.missing}>This request is no longer on the queue.</Text>
+      <View style={[styles.fill, chrome.fill]}>
+        <BackBar title="Request Details" onBack={onBack} />
+        <Text style={[styles.missing, chrome.muted]}>This request is no longer on the queue.</Text>
       </View>
     );
   }
 
   const kindLabel =
     request.requestKind === 'MISSING_PDF_INVESTIGATION'
-      ? 'Missing PDF investigation'
-      : 'Physical booklet request';
+      ? 'Missing PDF Investigation'
+      : 'Physical Booklet Request';
+
+  const statusCopy =
+    liveStatus === 'Completed'
+      ? 'Completed — Booklet handed over'
+      : liveStatus === 'Located'
+        ? 'Located — Ready for the lecturer'
+        : 'Pending — Awaiting officer response';
+
+  const statusColors =
+    liveStatus === 'Completed'
+      ? { badgeBg: '#14532D', badgeText: '#BBF7D0', boxBg: '#DCFCE7', boxText: '#166534' }
+      : liveStatus === 'Located'
+        ? { badgeBg: '#1E3A8A', badgeText: '#BFDBFE', boxBg: '#DBEAFE', boxText: '#1E3A8A' }
+        : { badgeBg: '#92400E', badgeText: '#FEF3C7', boxBg: '#FEF3C7', boxText: '#92400E' };
+
+  const save = async (nextStatus: 'Located' | 'Completed') => {
+    setSaving(true);
+    setError('');
+    setFlash('');
+    try {
+      const result = await respondToRequest(request.id, {
+        officerStatus: nextStatus,
+        officerNote: note,
+        shelfLocation: request.shelf || '',
+        rack: request.rack || '',
+        box: request.box || '',
+        position: request.position || '',
+      });
+      setFlash(
+        result.notified
+          ? nextStatus === 'Located'
+            ? 'Location confirmed. Lecturer received feedback immediately.'
+            : 'Marked completed. Lecturer received feedback immediately.'
+          : nextStatus === 'Located'
+            ? 'Location confirmed, but the lecturer notification failed.'
+            : 'Marked completed, but the lecturer notification failed.'
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save the response.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <View style={styles.fill}>
-      <BackBar title={request.ref} onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        <View style={styles.panel}>
-          <Text style={styles.kicker}>{request.unitCode}</Text>
-          <Text style={styles.panelTitle}>{request.unitTitle}</Text>
-          <Row label="Request type" value={kindLabel} />
-          <Row label="Lecturer" value={request.lecturer} />
-          <Row label="Student" value={request.studentName || 'Not recorded'} />
-          <Row label="Registration" value={request.registrationNo || 'Not recorded'} />
-          <Row label="School" value={request.school || 'Not recorded'} />
-          <Row label="Programme" value={request.programme || 'Not recorded'} />
-          <Row label="Academic Session" value={request.session || 'Not recorded'} />
-          <Row label="Unit" value={`${request.unitCode} · ${request.unitTitle}`} />
-          <Row label="Requested" value={new Date(request.createdAt).toLocaleString()} />
-          <Row label="Status" value={request.officerStatus || request.status} />
-          {request.lecturerNote ? <Row label="Lecturer reason" value={request.lecturerNote} /> : null}
-          {request.shelf ? <Row label="Shelf on record" value={request.shelf} /> : null}
-          {request.rack ? <Row label="Rack on record" value={request.rack} /> : null}
-          {request.box ? <Row label="Box on record" value={request.box} /> : null}
-          {request.position ? <Row label="Position on record" value={request.position} /> : null}
+    <View style={[styles.fill, chrome.fill]}>
+      <BackBar title="Request Details" onBack={onBack} />
+      <KeyboardScrollView contentContainerStyle={detailStyles.page}>
+        <View style={detailStyles.hero}>
+          <View style={detailStyles.heroCopy}>
+            <Text style={detailStyles.heroTitle}>{kindLabel}</Text>
+            <Text style={detailStyles.heroSub}>Request from Lecturer</Text>
+          </View>
+          <View style={[detailStyles.badge, { backgroundColor: statusColors.badgeBg }]}>
+            <Text style={[detailStyles.badgeText, { color: statusColors.badgeText }]}>{liveStatus}</Text>
+          </View>
         </View>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Physical location feedback</Text>
-          <Text style={styles.sub}>
-            Locate the original physical booklet and send the exact storage details to the lecturer.
-            Locating the booklet does not mark it as collected.
+
+        <View style={detailStyles.steps}>
+          <StepDot label="1. Pending" active={liveStatus === 'Pending'} done={liveStatus !== 'Pending'} />
+          <View style={detailStyles.stepLine} />
+          <StepDot label="2. Located" active={liveStatus === 'Located'} done={liveStatus === 'Completed'} />
+          <View style={detailStyles.stepLine} />
+          <StepDot label="3. Completed" active={liveStatus === 'Completed'} done={liveStatus === 'Completed'} />
+        </View>
+
+        <DetailBlock title="Lecturer Information" palette={chrome.palette}>
+          <DetailRow label="Name" value={request.lecturer} palette={chrome.palette} />
+          <DetailRow
+            label="Reg Number"
+            value={request.registrationNo || request.studentName || 'Not recorded'}
+            palette={chrome.palette}
+          />
+        </DetailBlock>
+
+        <DetailBlock title="Examination Details" palette={chrome.palette}>
+          <DetailRow label="School" value={request.school || 'Not recorded'} palette={chrome.palette} />
+          <DetailRow label="Programme" value={request.programme || 'Not recorded'} palette={chrome.palette} />
+          <DetailRow label="Session" value={request.session || 'Not recorded'} palette={chrome.palette} />
+          <DetailRow label="Unit Code" value={request.unitCode} palette={chrome.palette} />
+          <DetailRow label="Unit Name" value={request.unitTitle} palette={chrome.palette} />
+        </DetailBlock>
+
+        <DetailBlock title="Reason for Request" palette={chrome.palette}>
+          <Text style={[detailStyles.reason, chrome.ink]}>
+            {request.lecturerNote?.trim() || 'No reason was provided with this request.'}
           </Text>
-          {['Pending', 'Received', 'Located', 'Ready for Collection', 'Not Located', 'Fulfilled'].map((option) => (
-            <TouchableOpacity
-              key={option}
-              style={[styles.pick, status === option && styles.pickOn]}
-              onPress={() => setStatus(option)}
-            >
-              <Text style={styles.pickTitle}>{option}</Text>
-            </TouchableOpacity>
-          ))}
-          <TextInput
-            style={styles.input}
-            value={shelf}
-            onChangeText={setShelf}
-            placeholder="Shelf"
-            placeholderTextColor="#94A3B8"
+          <Text style={[detailStyles.when, chrome.muted]}>{new Date(request.createdAt).toLocaleString()}</Text>
+        </DetailBlock>
+
+        <View style={[detailStyles.statusBox, { backgroundColor: statusColors.boxBg }]}>
+          <Feather
+            name={liveStatus === 'Pending' ? 'clock' : liveStatus === 'Located' ? 'map-pin' : 'check-circle'}
+            size={16}
+            color={statusColors.boxText}
           />
-          <TextInput
-            style={styles.input}
-            value={rack}
-            onChangeText={setRack}
-            placeholder="Rack"
-            placeholderTextColor="#94A3B8"
-          />
-          <TextInput
-            style={styles.input}
-            value={box}
-            onChangeText={setBox}
-            placeholder="Box"
-            placeholderTextColor="#94A3B8"
-          />
-          <TextInput
-            style={styles.input}
-            value={position}
-            onChangeText={setPosition}
-            placeholder="Position"
-            placeholderTextColor="#94A3B8"
-          />
-          <TextInput
-            style={[styles.input, { height: 90, textAlignVertical: 'top' }]}
-            value={note}
-            onChangeText={setNote}
-            placeholder="Feedback or collection instructions for the lecturer"
-            placeholderTextColor="#94A3B8"
-            multiline
-          />
-          {error ? <Text style={styles.empty}>{error}</Text> : null}
-          <TouchableOpacity
-            style={styles.primary}
-            disabled={saving}
-            onPress={() => {
-              setSaving(true);
-              setError('');
-              void respondToRequest(request.id, {
-                officerStatus: status,
-                officerNote: note,
-                shelfLocation: shelf,
-                rack,
-                box,
-                position,
-              })
-                .catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not save the response.'))
-                .finally(() => setSaving(false));
-            }}
-          >
-            <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Send feedback to lecturer'}</Text>
-          </TouchableOpacity>
+          <Text style={[detailStyles.statusText, { color: statusColors.boxText }]}>{statusCopy}</Text>
         </View>
-        {request.status === 'In Progress' ? (
-          <TouchableOpacity style={styles.secondary} onPress={onVerify}>
-            <Text style={styles.secondaryText}>Verify Custody</Text>
-          </TouchableOpacity>
-        ) : null}
-        {request.status === 'Pending Review' ? (
-          <TouchableOpacity style={styles.secondary} onPress={onRetrieve}>
-            <Text style={styles.secondaryText}>Begin Vault Retrieval</Text>
-          </TouchableOpacity>
-        ) : null}
-      </ScrollView>
+
+        {liveStatus !== 'Completed' ? (
+          <View style={[detailStyles.actionCard, chrome.card]}>
+            <View style={detailStyles.actionHead}>
+              <MaterialCommunityIcons name="message-text-outline" size={22} color={chrome.palette.ink} />
+              <Text style={[detailStyles.actionTitle, chrome.ink]}>Feedback to lecturer</Text>
+            </View>
+            <Text style={[detailStyles.actionBody, chrome.muted]}>
+              Optional note. It is sent to the lecturer as soon as you confirm location or mark completed.
+            </Text>
+            <TextInput
+              style={[detailStyles.feedbackInput, chrome.field]}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Enter your feedback (optional)…"
+              placeholderTextColor={chrome.palette.muted}
+              multiline
+            />
+
+            {liveStatus === 'Pending' ? (
+              <>
+                <Text style={[detailStyles.actionBody, chrome.muted]}>
+                  Step 1 — Confirm the booklet has been located in the store. The lecturer is notified immediately.
+                </Text>
+                <TouchableOpacity
+                  style={detailStyles.primaryBtn}
+                  disabled={saving}
+                  onPress={() => void save('Located')}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="map-pin" size={18} color="#FFFFFF" />
+                  <Text style={detailStyles.primaryBtnText}>
+                    {saving ? 'Notifying lecturer…' : 'Confirm Location'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={[detailStyles.actionBody, chrome.muted]}>
+                  Step 2 — Mark completed when the booklet is ready / handed over. The lecturer is notified immediately.
+                </Text>
+                <TouchableOpacity
+                  style={detailStyles.primaryBtn}
+                  disabled={saving}
+                  onPress={() => void save('Completed')}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="check-circle" size={18} color="#FFFFFF" />
+                  <Text style={detailStyles.primaryBtnText}>
+                    {saving ? 'Notifying lecturer…' : 'Mark Completed'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        ) : (
+          <View style={[detailStyles.actionCard, chrome.card]}>
+            <Text style={[detailStyles.actionBody, chrome.muted]}>
+              This request is completed. The lecturer already received the final update.
+            </Text>
+            {request.officerNote ? (
+              <Text style={[detailStyles.reason, chrome.ink]}>Officer note: {request.officerNote}</Text>
+            ) : null}
+          </View>
+        )}
+
+        {flash ? <Text style={detailStyles.flash}>{flash}</Text> : null}
+        {error ? <Text style={detailStyles.error}>{error}</Text> : null}
+
+        <TouchableOpacity style={detailStyles.backBtn} onPress={onBack} activeOpacity={0.85}>
+          <Feather name="arrow-left" size={16} color={chrome.palette.ink} />
+          <Text style={[detailStyles.backBtnText, chrome.ink]}>Back</Text>
+        </TouchableOpacity>
+      </KeyboardScrollView>
     </View>
   );
 };
+
+function StepDot({ label, active, done }: { label: string; active: boolean; done: boolean }) {
+  return (
+    <View style={detailStyles.stepItem}>
+      <View
+        style={[
+          detailStyles.stepDot,
+          (active || done) && detailStyles.stepDotOn,
+          done && !active && detailStyles.stepDotDone,
+        ]}
+      />
+      <Text style={[detailStyles.stepLabel, (active || done) && detailStyles.stepLabelOn]}>{label}</Text>
+    </View>
+  );
+}
+
+function DetailBlock({
+  title,
+  children,
+  palette,
+}: {
+  title: string;
+  children: React.ReactNode;
+  palette: ReturnType<typeof officerPalette>;
+}) {
+  return (
+    <View style={[detailStyles.block, { backgroundColor: palette.card, borderColor: palette.line }]}>
+      <Text style={[detailStyles.blockTitle, { color: palette.ink }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  palette,
+}: {
+  label: string;
+  value: string;
+  palette: ReturnType<typeof officerPalette>;
+}) {
+  return (
+    <View style={detailStyles.row}>
+      <Text style={[detailStyles.rowLabel, { color: palette.muted }]}>{label}</Text>
+      <Text style={[detailStyles.rowValue, { color: palette.ink }]}>{value}</Text>
+    </View>
+  );
+}
+
+const detailStyles = StyleSheet.create({
+  stage: { backgroundColor: '#DCE3EF' },
+  page: { padding: 16, paddingBottom: 28, gap: 12 },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#0B1F4D',
+    borderRadius: 16,
+    padding: 14,
+  },
+  heroCopy: { flex: 1 },
+  heroTitle: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  heroSub: { marginTop: 3, fontSize: 12, fontWeight: '600', color: '#93C5FD' },
+  badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  badgeText: { fontSize: 11, fontWeight: '800' },
+  steps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0B1F4D',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+  },
+  stepItem: { flex: 1, alignItems: 'center', gap: 6 },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#64748B',
+  },
+  stepDotOn: { backgroundColor: '#60A5FA' },
+  stepDotDone: { backgroundColor: '#34D399' },
+  stepLine: { width: 18, height: 2, backgroundColor: '#475569', marginBottom: 18 },
+  stepLabel: { fontSize: 10, fontWeight: '700', color: '#94A3B8', textAlign: 'center' },
+  stepLabelOn: { color: '#E2E8F0' },
+  block: {
+    backgroundColor: '#E8EEF8',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#B8C7DE',
+  },
+  blockTitle: { fontSize: 13, fontWeight: '800', color: '#00236F', marginBottom: 10 },
+  row: { marginBottom: 8 },
+  rowLabel: { fontSize: 11, fontWeight: '700', color: '#475569', marginBottom: 2 },
+  rowValue: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+  reason: { fontSize: 13, fontWeight: '600', color: '#1E293B', lineHeight: 19 },
+  when: { marginTop: 8, fontSize: 11, fontWeight: '600', color: '#64748B' },
+  statusBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  statusText: { flex: 1, fontSize: 12, fontWeight: '800' },
+  actionCard: {
+    backgroundColor: '#F1F5FB',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#B8C7DE',
+  },
+  actionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  actionTitle: { fontSize: 14, fontWeight: '800', color: '#00236F' },
+  actionBody: { fontSize: 12, fontWeight: '600', color: '#334155', lineHeight: 18, marginBottom: 12 },
+  feedbackInput: {
+    minHeight: 88,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#94A3B8',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: 'top',
+    fontSize: 13,
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  primaryBtn: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#00236F',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  flash: { color: '#166534', fontWeight: '700', fontSize: 12 },
+  error: { color: '#B91C1C', fontWeight: '700', fontSize: 12 },
+  backBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  backBtnText: { color: '#00236F', fontWeight: '800', fontSize: 14 },
+});
 
 export const OfficerVerifyScreen: React.FC<{
   id: string;
   onBack: () => void;
   onDone: () => void;
 }> = ({ id, onBack, onDone }) => {
+  const chrome = useOfficerChrome();
   const { requests, verifyRequest } = useCustody();
   const request = requests.find((item) => item.id === id);
   const [checks, setChecks] = useState([false, false, false]);
 
   if (!request) {
     return (
-      <View style={styles.fill}>
+      <View style={[styles.fill, chrome.fill]}>
         <BackBar title="Verify Custody" onBack={onBack} />
-        <Text style={styles.missing}>Request not found.</Text>
+        <Text style={[styles.missing, chrome.muted]}>Request not found.</Text>
       </View>
     );
   }
@@ -264,17 +521,17 @@ export const OfficerVerifyScreen: React.FC<{
   const ready = checks.every(Boolean);
 
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar title="Verify Custody" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page}>
-        <Text style={styles.title}>{request.ref}</Text>
-        <Text style={styles.sub}>
+      <ScrollView contentContainerStyle={[styles.page, chrome.page]}>
+        <Text style={[styles.title, chrome.ink]}>{request.ref}</Text>
+        <Text style={[styles.sub, chrome.muted]}>
           {request.unitCode} • {request.unitTitle} — {request.lecturer}
         </Text>
         {items.map((label, index) => (
           <TouchableOpacity
             key={label}
-            style={styles.checkRow}
+            style={[styles.checkRow, chrome.card]}
             activeOpacity={0.8}
             onPress={() =>
               setChecks((current) => current.map((value, i) => (i === index ? !value : value)))
@@ -283,7 +540,7 @@ export const OfficerVerifyScreen: React.FC<{
             <View style={[styles.box, checks[index] && styles.boxOn]}>
               {checks[index] ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
             </View>
-            <Text style={styles.checkLabel}>{label}</Text>
+            <Text style={[styles.checkLabel, chrome.ink]}>{label}</Text>
           </TouchableOpacity>
         ))}
         <TouchableOpacity
@@ -308,15 +565,16 @@ export const OfficerRetrievalScreen: React.FC<{
   onBack: () => void;
   onDone: () => void;
 }> = ({ id, onBack, onDone }) => {
+  const chrome = useOfficerChrome();
   const { requests, startRetrieval } = useCustody();
   const request = requests.find((item) => item.id === id);
   const [step, setStep] = useState(0);
 
   if (!request) {
     return (
-      <View style={styles.fill}>
+      <View style={[styles.fill, chrome.fill]}>
         <BackBar title="Vault Retrieval" onBack={onBack} />
-        <Text style={styles.missing}>Request not found.</Text>
+        <Text style={[styles.missing, chrome.muted]}>Request not found.</Text>
       </View>
     );
   }
@@ -324,24 +582,24 @@ export const OfficerRetrievalScreen: React.FC<{
   const finished = step >= STEPS.length;
 
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar title="Vault Retrieval" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page}>
-        <Text style={styles.title}>{request.ref}</Text>
-        <Text style={styles.sub}>
+      <ScrollView contentContainerStyle={[styles.page, chrome.page]}>
+        <Text style={[styles.title, chrome.ink]}>{request.ref}</Text>
+        <Text style={[styles.sub, chrome.muted]}>
           {request.moderationLabel || `${request.unitCode} • ${request.unitTitle}`} · {request.booklets} booklets
         </Text>
         {STEPS.map((label, index) => {
           const done = index < step;
           const current = index === step;
           return (
-            <View key={label} style={styles.step}>
+            <View key={label} style={[styles.step, chrome.card]}>
               <View style={[styles.stepDot, (done || current) && styles.stepDotOn]}>
                 <Text style={[styles.stepNum, !(done || current) && styles.stepNumIdle]}>
                   {done ? '✓' : index + 1}
                 </Text>
               </View>
-              <Text style={[styles.stepLabel, current && styles.stepCurrent]}>{label}</Text>
+              <Text style={[styles.stepLabel, chrome.ink, current && styles.stepCurrent]}>{label}</Text>
             </View>
           );
         })}
@@ -367,6 +625,7 @@ export const OfficerLogBatchScreen: React.FC<{
   onBack: () => void;
   onDone: () => void;
 }> = ({ onBack, onDone }) => {
+  const chrome = useOfficerChrome();
   const { logBatch } = useCustody();
   const [code, setCode] = useState('');
   const [title, setTitle] = useState('');
@@ -391,88 +650,400 @@ export const OfficerLogBatchScreen: React.FC<{
   };
 
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar title="Log New Batch" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <KeyboardScrollView contentContainerStyle={[styles.page, chrome.page]}>
         <FieldLabel>Exam code</FieldLabel>
-        <TextInput style={styles.input} value={code} onChangeText={setCode} placeholder="e.g. BIT 411" placeholderTextColor="#94A3B8" />
+        <TextInput
+          style={[styles.input, chrome.field]}
+          value={code}
+          onChangeText={setCode}
+          placeholder="e.g. BIT 411"
+          placeholderTextColor={chrome.palette.muted}
+        />
         <FieldLabel>Unit title</FieldLabel>
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="e.g. Distributed Systems" placeholderTextColor="#94A3B8" />
+        <TextInput
+          style={[styles.input, chrome.field]}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="e.g. Distributed Systems"
+          placeholderTextColor={chrome.palette.muted}
+        />
         <FieldLabel>Script count</FieldLabel>
-        <TextInput style={styles.input} value={scripts} onChangeText={setScripts} placeholder="84" placeholderTextColor="#94A3B8" keyboardType="number-pad" />
+        <TextInput
+          style={[styles.input, chrome.field]}
+          value={scripts}
+          onChangeText={setScripts}
+          placeholder="84"
+          placeholderTextColor={chrome.palette.muted}
+          keyboardType="number-pad"
+        />
         <FieldLabel>Box</FieldLabel>
-        <TextInput style={styles.input} value={box} onChangeText={setBox} placeholder="Box B-14" placeholderTextColor="#94A3B8" />
+        <TextInput
+          style={[styles.input, chrome.field]}
+          value={box}
+          onChangeText={setBox}
+          placeholder="Box B-14"
+          placeholderTextColor={chrome.palette.muted}
+        />
         <FieldLabel>Shelf</FieldLabel>
-        <TextInput style={styles.input} value={shelf} onChangeText={setShelf} placeholder="Shelf 03" placeholderTextColor="#94A3B8" />
+        <TextInput
+          style={[styles.input, chrome.field]}
+          value={shelf}
+          onChangeText={setShelf}
+          placeholder="Shelf 03"
+          placeholderTextColor={chrome.palette.muted}
+        />
         <TouchableOpacity style={styles.primary} onPress={save}>
           <Text style={styles.primaryText}>Save batch</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardScrollView>
     </View>
   );
 };
 
 export const OfficerLocationScreen: React.FC<{
   bookletId?: string;
+  archiveId?: string;
   onBack: () => void;
   onDone: () => void;
-}> = ({ bookletId, onBack, onDone }) => {
-  const { booklets, updateLocation } = useCustody();
-  const [selected, setSelected] = useState(bookletId || booklets[0]?.id || '');
-  const current = booklets.find((item) => item.id === selected);
-  const [shelf, setShelf] = useState(current?.shelf || '');
-  const [box, setBox] = useState(current?.box || '');
+}> = ({ bookletId, archiveId, onBack, onDone }) => {
+  const chrome = useOfficerChrome();
+  const { user } = useAuth();
+  const { records, updateRecord, rememberArchives } = useVault();
+  const focused = Boolean(archiveId || bookletId);
+  const [selected, setSelected] = useState(archiveId || '');
+  const [school, setSchool] = useState('');
+  const [unitLabel, setUnitLabel] = useState('');
+  const [resolving, setResolving] = useState(Boolean(archiveId || bookletId));
+  const [saving, setSaving] = useState(false);
+  const current = records.find((item) => item.id === selected);
+  const [rack, setRack] = useState('');
+  const [shelf, setShelf] = useState('');
+  const [box, setBox] = useState('');
+  const [position, setPosition] = useState('');
+  const [rackChoices, setRackChoices] = useState<string[]>([]);
+  const [shelfChoices, setShelfChoices] = useState<string[]>([]);
 
-  const choose = (item: ArchivedBooklet) => {
-    setSelected(item.id);
-    setShelf(item.shelf);
-    setBox(item.box);
+  useEffect(() => {
+    let cancelled = false;
+    const resolveTarget = async () => {
+      if (!archiveId && !bookletId) {
+        const first = records[0];
+        if (first && !selected) {
+          setSelected(first.id);
+          setSchool(first.faculty || '');
+          setUnitLabel(`${first.courseCode} · ${first.courseName}`);
+          setRack(first.rack || '');
+          setShelf(first.shelf || '');
+          setBox(first.box || '');
+          setPosition(first.pos || '');
+        }
+        setResolving(false);
+        return;
+      }
+
+      setResolving(true);
+      try {
+        let nextArchiveId = archiveId || '';
+        let nextSchool = '';
+        let nextLabel = '';
+        let nextRack = '';
+        let nextShelf = '';
+        let nextBox = '';
+        let nextPos = '';
+
+        if (bookletId) {
+          const booklet = await getBooklet(bookletId);
+          if (!booklet?.archiveId) {
+            if (!cancelled) {
+              Alert.alert(
+                'No archive link',
+                'This upload is not linked to a physical archive record yet, so its location cannot be updated.'
+              );
+              setResolving(false);
+            }
+            return;
+          }
+          nextArchiveId = booklet.archiveId;
+          nextSchool = booklet.school || '';
+          nextLabel = `${booklet.unitCode} · ${booklet.unitName}`;
+          nextRack = booklet.rack || '';
+          nextShelf = booklet.shelf || '';
+          nextBox = booklet.box || '';
+          nextPos = booklet.position || '';
+        }
+
+        const existing = records.find((row) => row.id === nextArchiveId);
+        if (existing) {
+          nextSchool = existing.faculty || nextSchool;
+          nextLabel = `${existing.courseCode} · ${existing.courseName}`;
+          nextRack = existing.rack || nextRack;
+          nextShelf = existing.shelf || nextShelf;
+          nextBox = existing.box || nextBox;
+          nextPos = existing.pos || nextPos;
+        }
+
+        if (!cancelled) {
+          setSelected(nextArchiveId);
+          setSchool(nextSchool);
+          setUnitLabel(nextLabel);
+          setRack(nextRack);
+          setShelf(nextShelf);
+          setBox(nextBox);
+          setPosition(nextPos);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          Alert.alert(
+            'Could not open location',
+            error instanceof Error ? error.message : 'The archive record could not be loaded.'
+          );
+        }
+      } finally {
+        if (!cancelled) setResolving(false);
+      }
+    };
+    void resolveTarget();
+    return () => {
+      cancelled = true;
+    };
+    // Resolve once for the focused booklet/archive; list mode still reacts to empty selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archiveId, bookletId]);
+
+  useEffect(() => {
+    const faculty = school || current?.faculty || '';
+    if (!faculty) {
+      setRackChoices([]);
+      setShelfChoices([]);
+      return;
+    }
+    void racksForSchoolFromDb(faculty).then(setRackChoices);
+    void shelvesForSchoolFromDb(faculty).then(setShelfChoices);
+  }, [school, current?.faculty]);
+
+  const choose = (id: string) => {
+    const item = records.find((row) => row.id === id);
+    setSelected(id);
+    setSchool(item?.faculty || '');
+    setUnitLabel(item ? `${item.courseCode} · ${item.courseName}` : '');
+    setRack(item?.rack || '');
+    setShelf(item?.shelf || '');
+    setBox(item?.box || '');
+    setPosition(item?.pos || '');
   };
 
   const save = async () => {
-    if (!selected || !shelf.trim() || !box.trim()) {
-      Alert.alert('Missing location', 'Choose a booklet and enter the new shelf and box.');
+    if (!selected || !rack.trim() || !shelf.trim() || !box.trim() || !position.trim()) {
+      Alert.alert('Missing location', 'Enter rack, shelf, box and position.');
       return;
     }
-    try {
-      await updateLocation(selected, shelf.trim(), box.trim());
-      onDone();
-    } catch (error) {
-      Alert.alert('Location not saved', error instanceof Error ? error.message : 'The archive location could not be updated.');
+    const occupied = await findArchiveAtLocation({
+      shelf: shelf.trim(),
+      rack: rack.trim(),
+      box: box.trim(),
+      position: position.trim(),
+      excludeId: selected,
+    });
+    const apply = async () => {
+      setSaving(true);
+      try {
+        const item = records.find((row) => row.id === selected);
+        if (item) {
+          await updateRecord({
+            ...item,
+            shelf: shelf.trim(),
+            rack: rack.trim(),
+            box: box.trim(),
+            pos: position.trim(),
+          });
+        } else {
+          await updateArchiveLocation(selected, {
+            shelf: shelf.trim(),
+            rack: rack.trim(),
+            box: box.trim(),
+            position: position.trim(),
+          });
+          rememberArchives([
+            {
+              id: selected,
+              faculty: school,
+              programme: '',
+              session: '',
+              courseCode: unitLabel.split(' · ')[0] || '',
+              courseName: unitLabel.split(' · ').slice(1).join(' · ') || unitLabel,
+              studentName: '',
+              admissionNumber: '',
+              bundleId: '',
+              scriptCount: 0,
+              shelf: shelf.trim(),
+              rack: rack.trim(),
+              box: box.trim(),
+              pos: position.trim(),
+              status: 'Digitized Copy',
+              vaultStatus: 'Verified in Vault',
+              custodyStatus: 'On shelf',
+              lastVerifiedAt: null,
+              isRequested: false,
+              archivedAt: new Date().toISOString(),
+            },
+          ]);
+        }
+        const savedLocationCode = formatLocationCode({
+          shelf: shelf.trim(),
+          rack: rack.trim(),
+          box: box.trim(),
+          position: position.trim(),
+        });
+        await createNotification({
+          audience: 'admin',
+          title: 'Vault location updated',
+          body: `${user?.name || 'Examination Officer'} updated ${unitLabel || 'a booklet'} to ${savedLocationCode}.`,
+          skipAdminMirror: true,
+        });
+        onDone();
+      } catch (error) {
+        Alert.alert(
+          'Location not saved',
+          error instanceof Error ? error.message : 'The archive location could not be updated.'
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+    if (occupied) {
+      Alert.alert(
+        'Location already used',
+        `Already used by ${occupied.unitCode} · ${occupied.unitName}. Save anyway?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save anyway', onPress: () => void apply() },
+        ]
+      );
+      return;
     }
+    await apply();
   };
 
+  const code = formatLocationCode({
+    shelf: shelf || 'X',
+    rack: rack || '0',
+    box: box || '0',
+    position: position || '0',
+  });
+
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar title="Update Location" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-        <Text style={styles.sub}>Choose the booklet, then record its new shelf and box.</Text>
-        {booklets.map((item) => {
-          const on = item.id === selected;
-          return (
+      <KeyboardScrollView contentContainerStyle={[styles.page, chrome.page]}>
+        {resolving ? (
+          <ActivityIndicator color={NAVY} style={{ marginTop: 24 }} />
+        ) : (
+          <>
+            <Text style={[styles.sub, chrome.muted]}>
+              {focused
+                ? 'Update the physical vault location for this uploaded booklet.'
+                : 'Choose an archive batch, then set rack · shelf · box · position.'}
+            </Text>
+            {unitLabel ? (
+              <Text style={[styles.sub, { fontWeight: '800', color: chrome.palette.ink }]}>{unitLabel}</Text>
+            ) : null}
+            <Text style={[styles.sub, { fontWeight: '800', color: chrome.palette.ink }]}>Code: {code}</Text>
+            {!focused
+              ? records.map((item) => {
+                  const on = item.id === selected;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.pick, chrome.card, on && styles.pickOn]}
+                      onPress={() => choose(item.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.pickTitle, chrome.ink]}>
+                        {item.courseCode} · {item.courseName}
+                      </Text>
+                      <Text style={[styles.pickMeta, chrome.muted]}>
+                        {item.rack} · {item.shelf} · {item.box} · {item.pos}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })
+              : null}
+            <FieldLabel>Rack</FieldLabel>
+            {rackChoices.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {rackChoices.map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.pick, chrome.card, rack === option && styles.pickOn, { marginRight: 8 }]}
+                    onPress={() => setRack(option)}
+                  >
+                    <Text style={[styles.pickTitle, chrome.ink]}>{option}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <TextInput
+                style={[styles.input, chrome.field]}
+                value={rack}
+                onChangeText={setRack}
+                placeholder="Rack A"
+                placeholderTextColor={chrome.palette.muted}
+              />
+            )}
+            <FieldLabel>Shelf</FieldLabel>
+            {shelfChoices.length ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                {shelfChoices.map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.pick, chrome.card, shelf === option && styles.pickOn, { marginRight: 8 }]}
+                    onPress={() => setShelf(option)}
+                  >
+                    <Text style={[styles.pickTitle, chrome.ink]}>{option}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <TextInput
+                style={[styles.input, chrome.field]}
+                value={shelf}
+                onChangeText={setShelf}
+                placeholder="Shelf 1"
+                placeholderTextColor={chrome.palette.muted}
+              />
+            )}
+            <FieldLabel>Box number</FieldLabel>
+            <TextInput
+              style={[styles.input, chrome.field]}
+              value={box}
+              onChangeText={setBox}
+              placeholder="05"
+              placeholderTextColor={chrome.palette.muted}
+            />
+            <FieldLabel>Position of bundle</FieldLabel>
+            <TextInput
+              style={[styles.input, chrome.field]}
+              value={position}
+              onChangeText={setPosition}
+              placeholder="3"
+              placeholderTextColor={chrome.palette.muted}
+            />
             <TouchableOpacity
-              key={item.id}
-              style={[styles.pick, on && styles.pickOn]}
-              onPress={() => choose(item)}
-              activeOpacity={0.8}
+              style={[styles.primary, saving && styles.disabled]}
+              disabled={saving}
+              onPress={() => void save()}
             >
-              <Text style={styles.pickTitle}>
-                {item.code} · {item.title}
-              </Text>
-              <Text style={styles.pickMeta}>
-                {item.box}, {item.shelf}
-              </Text>
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.primaryText}>Save location</Text>
+              )}
             </TouchableOpacity>
-          );
-        })}
-        <FieldLabel>New shelf</FieldLabel>
-        <TextInput style={styles.input} value={shelf} onChangeText={setShelf} placeholder="Shelf 03" placeholderTextColor="#94A3B8" />
-        <FieldLabel>New box</FieldLabel>
-        <TextInput style={styles.input} value={box} onChangeText={setBox} placeholder="Box B-14" placeholderTextColor="#94A3B8" />
-        <TouchableOpacity style={styles.primary} onPress={save}>
-          <Text style={styles.primaryText}>Save location</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          </>
+        )}
+      </KeyboardScrollView>
     </View>
   );
 };
@@ -482,34 +1053,94 @@ export const OfficerBookletScreen: React.FC<{
   onBack: () => void;
   onUpdateLocation: () => void;
 }> = ({ id, onBack, onUpdateLocation }) => {
-  const { booklets } = useCustody();
-  const item = booklets.find((booklet) => booklet.id === id);
+  const chrome = useOfficerChrome();
+  const [item, setItem] = useState<Booklet | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [pdfOpen, setPdfOpen] = useState(false);
 
-  if (!item) {
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    getBooklet(id)
+      .then((row) => {
+        if (cancelled) return;
+        setItem(row);
+        if (!row) setError('Booklet not found.');
+      })
+      .catch((caught) => {
+        if (cancelled) return;
+        setItem(null);
+        setError(friendlyBookletError(caught));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (loading) {
     return (
-      <View style={styles.fill}>
+      <View style={[styles.fill, chrome.fill]}>
         <BackBar title="Booklet" onBack={onBack} />
-        <Text style={styles.missing}>Booklet not found.</Text>
+        <ActivityIndicator color={NAVY} style={{ marginTop: 32 }} />
       </View>
     );
   }
 
+  if (!item) {
+    return (
+      <View style={[styles.fill, chrome.fill]}>
+        <BackBar title="Booklet" onBack={onBack} />
+        <Text style={[styles.missing, chrome.muted]}>{error || 'Booklet not found.'}</Text>
+      </View>
+    );
+  }
+
+  const location = formatPhysicalLocation(item);
+  const canUpdateLocation = Boolean(item.archiveId);
+
   return (
-    <View style={styles.fill}>
-      <BackBar title={item.code} onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.page}>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>{item.title}</Text>
-          <Row label="Scripts" value={String(item.scripts)} />
-          <Row label="Box" value={item.box} />
-          <Row label="Shelf" value={item.shelf} />
-          <Row label="Logged" value={`${item.when}${item.actor ? ` ${item.actor}` : ''}`} />
-          <Row label="Status" value="Verified" />
+    <View style={[styles.fill, chrome.fill]}>
+      <BackBar title={item.unitCode || 'Booklet'} onBack={onBack} />
+      <ScrollView contentContainerStyle={[styles.page, chrome.page]}>
+        <View style={[styles.panel, chrome.card]}>
+          <Text style={[styles.panelTitle, chrome.ink]}>{item.unitName || item.unitCode}</Text>
+          <Row label="Student" value={item.studentName || 'Not recorded'} palette={chrome.palette} />
+          <Row label="Registration" value={item.registrationNo || 'Not recorded'} palette={chrome.palette} />
+          <Row label="School" value={item.school || 'Not recorded'} palette={chrome.palette} />
+          <Row label="Programme" value={item.programme || 'Not recorded'} palette={chrome.palette} />
+          <Row label="Session" value={item.academicSession || 'Not recorded'} palette={chrome.palette} />
+          <Row label="Location" value={location} palette={chrome.palette} />
+          <Row
+            label="PDF"
+            value={bookletHasPdf(item) ? 'Attached' : 'Missing'}
+            palette={chrome.palette}
+          />
         </View>
-        <TouchableOpacity style={styles.primary} onPress={onUpdateLocation}>
-          <Text style={styles.primaryText}>Update Location</Text>
+        {bookletHasPdf(item) ? (
+          <TouchableOpacity style={styles.primary} onPress={() => setPdfOpen(true)}>
+            <Feather name="eye" size={16} color="#FFFFFF" />
+            <Text style={styles.primaryText}>View PDF</Text>
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={[styles.secondary, !canUpdateLocation && styles.disabled]}
+          disabled={!canUpdateLocation}
+          onPress={onUpdateLocation}
+        >
+          <Text style={styles.secondaryText}>Update Location</Text>
         </TouchableOpacity>
+        {!canUpdateLocation ? (
+          <Text style={[styles.sub, chrome.muted]}>
+            This upload is not linked to a physical archive record yet.
+          </Text>
+        ) : null}
       </ScrollView>
+      <InAppPdfModal visible={pdfOpen} booklet={item} onClose={() => setPdfOpen(false)} />
     </View>
   );
 };
@@ -517,9 +1148,11 @@ export const OfficerBookletScreen: React.FC<{
 export const OfficerNotificationsScreen: React.FC<{
   onBack: () => void;
   onOpenRequests: () => void;
+  onOpenRequest: (id: string) => void;
   onVerify: (id: string) => void;
   onArchive: () => void;
-}> = ({ onBack }) => {
+}> = ({ onBack, onOpenRequest, onOpenRequests }) => {
+  const chrome = useOfficerChrome();
   const [notes, setNotes] = useState<AppNotification[]>([]);
 
   useEffect(() => {
@@ -558,8 +1191,24 @@ export const OfficerNotificationsScreen: React.FC<{
     ]);
   };
 
+  const openNote = (note: AppNotification) => {
+    const label = officerNoticeLabel(note.title, note.body);
+    const isRequestNotice =
+      Boolean(note.requestId) ||
+      label === 'Request' ||
+      /request|booklet|investigation/i.test(`${note.title} ${note.body}`);
+
+    if (note.requestId && isRequestNotice) {
+      onOpenRequest(note.requestId);
+      return;
+    }
+    if (isRequestNotice) {
+      onOpenRequests();
+    }
+  };
+
   return (
-    <View style={styles.fill}>
+    <View style={[styles.fill, chrome.fill]}>
       <BackBar
         title="Notifications"
         onBack={onBack}
@@ -575,16 +1224,25 @@ export const OfficerNotificationsScreen: React.FC<{
           tone: officerNoticeTone(note.title, note.body),
           icon: officerNoticeIcon(note.title, note.body),
         })}
+        onPressNote={openNote}
       />
     </View>
   );
 };
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+  palette,
+}: {
+  label: string;
+  value: string;
+  palette: ReturnType<typeof officerPalette>;
+}) {
   return (
     <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={[styles.rowLabel, { color: palette.muted }]}>{label}</Text>
+      <Text style={[styles.rowValue, { color: palette.ink }]}>{value}</Text>
     </View>
   );
 }
@@ -715,7 +1373,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  pickOn: { borderColor: NAVY, backgroundColor: '#F8FAFC' },
+  pickOn: { borderColor: NAVY },
   pickTitle: { fontWeight: '700', color: '#0F172A' },
   pickMeta: { marginTop: 2, color: '#64748B', fontSize: 12 },
   officerCard: {

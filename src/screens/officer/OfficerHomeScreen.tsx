@@ -5,8 +5,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { noticeWhenGroup } from '../../components/NotificationCard';
 import { useAuth } from '../../context/AuthContext';
 import { countDigitisedBooklets } from '../../services/bookletService';
+import { officerPalette, useTheme } from '../../context/ThemeContext';
 import { borderRadius, colors as tokens, control, spacing } from '../../theme';
-import { PAGE, useCustody } from './custody';
+import { useCustody } from './custody';
 
 const LIBRARY_HERO = require('../../../assets/images/library-hero.png');
 const AVATAR_SIZE = 56;
@@ -24,7 +25,7 @@ interface Props {
   onLogBatch: () => void;
   onArchive: () => void;
   onUpdateLocation: () => void;
-  onOpenUploads: () => void;
+  onOpenRequests: () => void;
   onOpenRequest: (id: string) => void;
   onVerify: (id: string) => void;
   onRetrieve: (id: string) => void;
@@ -53,10 +54,12 @@ function activityWhen(iso?: string) {
 export const OfficerHomeScreen: React.FC<Props> = ({
   onLogBatch,
   onArchive,
-  onOpenUploads,
+  onOpenRequests,
   onOpenRequest,
 }) => {
   const { user } = useAuth();
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   const { requests, booklets, stats, flash, clearFlash } = useCustody();
   const [uploaded, setUploaded] = useState(0);
   const greeting = greetingForHour(new Date().getHours());
@@ -93,7 +96,7 @@ export const OfficerHomeScreen: React.FC<Props> = ({
 
   return (
     <ScrollView
-      style={styles.scroll}
+      style={[styles.scroll, { backgroundColor: palette.page }]}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
@@ -151,21 +154,30 @@ export const OfficerHomeScreen: React.FC<Props> = ({
             label: 'Pending Requests',
             value: stats.pending,
             color: tokens.statusNoticeOrange,
+            onPress: onOpenRequests,
           },
           {
             key: 'uploaded',
             label: 'Booklets Uploaded',
             value: uploaded,
             color: tokens.statusNoticeGreen,
-            onPress: onOpenUploads,
+            onPress: onArchive,
           },
         ]}
       />
 
-      <View style={styles.banner}>
+      <View
+        style={[
+          styles.banner,
+          {
+            backgroundColor: palette.dark ? '#0C4A6E' : tokens.roleOfficerBg,
+            borderColor: palette.line,
+          },
+        ]}
+      >
         <View style={styles.bannerCopy}>
-          <Text style={styles.bannerTitle}>Secure • Organized • Accessible</Text>
-          <Text style={styles.bannerBody}>
+          <Text style={[styles.bannerTitle, { color: palette.ink }]}>Secure • Organized • Accessible</Text>
+          <Text style={[styles.bannerBody, { color: palette.muted }]}>
             Digitizing exam booklets for easy retrieval and better academic support.
           </Text>
         </View>
@@ -177,16 +189,16 @@ export const OfficerHomeScreen: React.FC<Props> = ({
         </View>
       </View>
 
-      <View style={styles.activityCard}>
+      <View style={[styles.activityCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
         <View style={styles.activityHead}>
           <View style={styles.activityTitleRow}>
             <MaterialCommunityIcons name="clock-outline" size={18} color={tokens.statusNoticeBlue} />
-            <Text style={styles.activityTitle}>Recent Activity</Text>
+            <Text style={[styles.activityTitle, { color: palette.ink }]}>Recent Activity</Text>
           </View>
         </View>
 
         {activity.length === 0 ? (
-          <Text style={styles.empty}>No recent activity yet. New requests will appear here.</Text>
+          <Text style={[styles.empty, { color: palette.muted }]}>No recent activity yet. New requests will appear here.</Text>
         ) : (
           activity.map((item, index) => {
             const when = activityWhen(item.at);
@@ -194,7 +206,11 @@ export const OfficerHomeScreen: React.FC<Props> = ({
             return (
               <TouchableOpacity
                 key={item.id}
-                style={[styles.activityRow, index === activity.length - 1 && styles.activityRowLast]}
+                style={[
+                  styles.activityRow,
+                  { borderBottomColor: palette.line },
+                  index === activity.length - 1 && styles.activityRowLast,
+                ]}
                 onPress={item.onPress}
                 activeOpacity={0.82}
                 accessibilityRole="button"
@@ -204,14 +220,14 @@ export const OfficerHomeScreen: React.FC<Props> = ({
                   <MaterialCommunityIcons name={visual.icon} size={18} color={visual.fg} />
                 </View>
                 <View style={styles.activityCopy}>
-                  <Text style={styles.activityItemTitle}>{item.title}</Text>
-                  <Text style={styles.activityItemSub} numberOfLines={1}>
+                  <Text style={[styles.activityItemTitle, { color: palette.ink }]}>{item.title}</Text>
+                  <Text style={[styles.activityItemSub, { color: palette.muted }]} numberOfLines={1}>
                     {item.subtitle}
                   </Text>
                 </View>
                 <View style={styles.activityWhen}>
-                  <Text style={styles.activityDay}>{when.day}</Text>
-                  <Text style={styles.activityTime}>{when.time}</Text>
+                  <Text style={[styles.activityDay, { color: palette.muted }]}>{when.day}</Text>
+                  <Text style={[styles.activityTime, { color: palette.muted }]}>{when.time}</Text>
                 </View>
               </TouchableOpacity>
             );
@@ -249,9 +265,11 @@ const PIE_HOLE = 78;
 const PIE_WEDGE = 12;
 
 function StatsPieCard({ slices }: { slices: PieSlice[] }) {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   const total = slices.reduce((sum, item) => sum + Math.max(0, item.value), 0);
   return (
-    <View style={styles.pieCard}>
+    <View style={[styles.pieCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
       <DonutPie slices={slices} total={total} />
       <View style={styles.pieLegend}>
         {slices.map((item) => (
@@ -264,10 +282,10 @@ function StatsPieCard({ slices }: { slices: PieSlice[] }) {
             accessibilityLabel={`${item.value} ${item.label}`}
           >
             <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-            <Text style={styles.legendLabel} numberOfLines={2}>
+            <Text style={[styles.legendLabel, { color: palette.ink }]} numberOfLines={2}>
               {item.label}
             </Text>
-            <Text style={styles.legendValue}>{item.value}</Text>
+            <Text style={[styles.legendValue, { color: palette.ink }]}>{item.value}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -276,11 +294,13 @@ function StatsPieCard({ slices }: { slices: PieSlice[] }) {
 }
 
 function DonutPie({ slices, total }: { slices: PieSlice[]; total: number }) {
+  const { theme } = useTheme();
+  const palette = officerPalette(theme);
   const radius = PIE_SIZE / 2;
   const wedges = pieWedges(slices, total);
   return (
     <View style={styles.pieWrap} accessibilityRole="image" accessibilityLabel={`Archive overview, ${total} total`}>
-      <View style={styles.pieDisc}>
+      <View style={[styles.pieDisc, { backgroundColor: palette.soft }]}>
         {wedges.map((wedge, index) => (
           <View
             key={index}
@@ -300,9 +320,9 @@ function DonutPie({ slices, total }: { slices: PieSlice[]; total: number }) {
           />
         ))}
       </View>
-      <View style={styles.pieHole}>
-        <Text style={styles.pieTotal}>{total}</Text>
-        <Text style={styles.pieTotalLabel}>Total</Text>
+      <View style={[styles.pieHole, { backgroundColor: palette.card }]}>
+        <Text style={[styles.pieTotal, { color: palette.ink }]}>{total}</Text>
+        <Text style={[styles.pieTotalLabel, { color: palette.muted }]}>Total</Text>
       </View>
     </View>
   );
@@ -330,7 +350,7 @@ function pieWedges(slices: PieSlice[], total: number) {
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: PAGE },
+  scroll: { flex: 1 },
   content: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: 28 },
   hero: {
     borderRadius: borderRadius.panel,

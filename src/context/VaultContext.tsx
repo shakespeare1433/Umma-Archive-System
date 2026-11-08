@@ -11,6 +11,8 @@ import {
 } from '../types';
 import { ALL_PROGRAMMES, ALL_SCHOOLS, ALL_SEMESTERS, ALL_YEARS } from '../data/catalog';
 import { insertArchive, listArchives, updateArchive } from '../services/archiveService';
+import { insertLocationHistory, locationLabel } from '../services/locationHistoryService';
+import { createNotification } from '../services/notificationService';
 import {
   deleteRequest,
   findOpenRequest,
@@ -60,6 +62,7 @@ const DEFAULT_FILTER: SearchFilterState = {
   session: ALL_SESSIONS,
   academicYear: ALL_YEARS,
   semester: ALL_SEMESTERS,
+  quickQuery: '',
   unitCode: '',
   unitName: '',
   bundleCode: '',
@@ -177,8 +180,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         regOrCohort: rec.admissionNumber,
         studentName: rec.studentName,
         currentStep: 1,
-        totalSteps: 4,
-        stepStatusText: '● Step 1/4',
+        totalSteps: 3,
+        stepStatusText: 'Pending',
         shelfLocation: rec.shelf || undefined,
         rack: rec.rack || undefined,
         box: rec.box || undefined,
@@ -192,6 +195,12 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           row.id === id ? { ...row, isRequested: true, vaultStatus: 'Requested' } : row
         )
       );
+      await createNotification({
+        audience: 'officer',
+        title: 'New booklet request',
+        body: `${user.name} requested ${rec.courseCode} · ${rec.studentName || rec.admissionNumber || 'booklet'}.`,
+        requestId: created.id,
+      });
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'Could not save the request.';
@@ -230,13 +239,19 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         regOrCohort: filter.admissionNumber.trim(),
         studentName: filter.studentName.trim(),
         currentStep: 1,
-        totalSteps: 4,
-        stepStatusText: '● Step 1/4',
+        totalSteps: 3,
+        stepStatusText: 'Pending',
         officerStatus: 'Pending',
         lecturerNote: reason.trim(),
       });
       setRequests((current) => [created, ...current]);
       logSearch(courseCode, created.courseTitle, faculty || 'Missing booklet');
+      await createNotification({
+        audience: 'officer',
+        title: 'Missing booklet investigation',
+        body: `${user.name} asked the office to locate ${courseCode}.`,
+        requestId: created.id,
+      });
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'Could not save the request.';
@@ -298,8 +313,44 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const updateRecord = async (record: ArchivedExaminationRecord) => {
-    await updateArchive(record);
-    setRecords((current) => current.map((row) => (row.id === record.id ? record : row)));
+    const previous = records.find((row) => row.id === record.id);
+    const fromLocation = previous
+      ? locationLabel({
+          shelf: previous.shelf,
+          rack: previous.rack,
+          box: previous.box,
+          position: previous.pos,
+        })
+      : 'Location not recorded';
+    const toLocation = locationLabel({
+      shelf: record.shelf,
+      rack: record.rack,
+      box: record.box,
+      position: record.pos,
+    });
+    const locationChanged =
+      previous &&
+      (previous.shelf !== record.shelf ||
+        previous.rack !== record.rack ||
+        previous.box !== record.box ||
+        previous.pos !== record.pos);
+
+    const next: ArchivedExaminationRecord = {
+      ...record,
+      custodyStatus: locationChanged ? 'Moved' : record.custodyStatus || previous?.custodyStatus || 'On shelf',
+      lastVerifiedAt: new Date().toISOString(),
+    };
+
+    await updateArchive(next);
+    if (locationChanged) {
+      await insertLocationHistory({
+        archiveId: record.id,
+        fromLocation,
+        toLocation,
+        movedBy: user?.id,
+      });
+    }
+    setRecords((current) => current.map((row) => (row.id === record.id ? next : row)));
   };
 
   const addRecord = async (record: Omit<ArchivedExaminationRecord, 'id'>) => {

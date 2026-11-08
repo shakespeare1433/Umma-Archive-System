@@ -4,9 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
   Image,
 } from 'react-native';
@@ -16,6 +13,7 @@ import { RootStackParamList } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 import { colors, spacing } from '../theme';
 
 type SignInNavProp = NativeStackNavigationProp<RootStackParamList, 'SignIn'>;
@@ -65,79 +63,70 @@ export const SignInScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Subtle ambient backdrop disc */}
-          <View style={styles.ambientDisc} />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <KeyboardScrollView bottomOffset={32} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.ambientDisc} />
 
-          {/* Main Card Container matching 'sign up age' screenshot */}
-          <View style={styles.card}>
-            <View style={styles.logoWrap}>
-              <Image
-                source={require('../../assets/exam-archive-logo.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </View>
-
-            <Text style={styles.title}>Welcome Back</Text>
-
-            <View style={styles.form}>
-              <Input
-                label="Email or username"
-                value={username}
-                onChangeText={(text) => {
-                  setUsername(text);
-                  if (errors.username) setErrors({ ...errors, username: undefined });
-                }}
-                error={errors.username}
-                autoCorrect={false}
-              />
-
-              <Input
-                label="Password"
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  setErrors({
-                    ...errors,
-                    password:
-                      text.length > 0 && text.length < 8
-                        ? 'Password must be at least 8 characters'
-                        : undefined,
-                  });
-                }}
-                error={errors.password}
-                isPassword
-              />
-
-              <Button
-                title="Sign In"
-                onPress={handleSignIn}
-                loading={loading}
-                style={styles.signInButton}
-              />
-
-              {/* Forgot Password link */}
-              <TouchableOpacity
-                onPress={() => navigation.navigate('ForgotPassword', { emailOrUser: username })}
-                style={styles.forgotPasswordButton}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={styles.card}>
+          <View style={styles.logoWrap}>
+            <Image
+              source={require('../../assets/exam-archive-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+          <Text style={styles.title}>Welcome Back</Text>
+
+          <View style={styles.form}>
+            <Input
+              label="Email or username"
+              value={username}
+              onChangeText={(text) => {
+                setUsername(text);
+                if (errors.username) setErrors({ ...errors, username: undefined });
+              }}
+              error={errors.username}
+              autoCorrect={false}
+              returnKeyType="next"
+            />
+
+            <Input
+              label="Password"
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                setErrors({
+                  ...errors,
+                  password:
+                    text.length > 0 && text.length < 8
+                      ? 'Password must be at least 8 characters'
+                      : undefined,
+                });
+              }}
+              error={errors.password}
+              isPassword
+              returnKeyType="done"
+              onSubmitEditing={handleSignIn}
+            />
+
+            <Button
+              title="Sign In"
+              onPress={handleSignIn}
+              loading={loading}
+              style={styles.signInButton}
+            />
+
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ForgotPassword', { emailOrUser: username })}
+              style={styles.forgotPasswordButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardScrollView>
     </SafeAreaView>
   );
 };
@@ -147,14 +136,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#EBF4F6',
   },
-  keyboardView: {
-    flex: 1,
-  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingTop: 24,
+    paddingBottom: 24,
   },
   ambientDisc: {
     position: 'absolute',

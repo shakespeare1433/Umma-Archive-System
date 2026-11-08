@@ -12,20 +12,22 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerStackHeader } from '../../components/booklets/LecturerStackHeader';
 import { BookletPdfViewer } from '../../components/booklets/BookletPdfViewer';
 import { lecturerPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
-import { BOOKLET_COPY } from '../../constants/booklets';
+import { BOOKLET_COPY, bookletHasPdf, formatPhysicalLocation } from '../../constants/booklets';
 import { searchArchives } from '../../services/archiveService';
 import {
   bookletFileName,
   downloadBookletPdf,
   friendlyBookletError,
   getBooklet,
+  listArchivedScripts,
   shareBookletFile,
 } from '../../services/bookletService';
-import { Booklet, RootStackParamList } from '../../types';
+import { ArchivedScript, Booklet, RootStackParamList } from '../../types';
 import { borderRadius, colors as tokens, control, spacing, typography } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'LecturerBookletDetails'>;
@@ -36,6 +38,7 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
   const styles = useMemo(() => createStyles(palette), [theme]);
   const { requestBooklet, rememberArchives } = useVault();
   const [booklet, setBooklet] = useState<Booklet | null>(null);
+  const [scripts, setScripts] = useState<ArchivedScript[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -54,15 +57,34 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
       if (!row) {
         setError(BOOKLET_COPY.missingFile);
         setBooklet(null);
+        setScripts([]);
         return;
       }
-      setBooklet({
+      const focused: Booklet = {
         ...row,
         studentName: route.params.studentName || row.studentName,
         registrationNo: route.params.registrationNo || row.registrationNo,
         startPage: route.params.startPage ?? row.startPage,
         endPage: route.params.endPage ?? row.endPage,
+      };
+      setBooklet(focused);
+      const index = await listArchivedScripts({
+        archiveId: focused.archiveId,
+        bookletId: focused.id.startsWith('archive:') ? null : focused.id,
       });
+      setScripts(index);
+      // No script index: show whole PDF (page 1) and rely on student name list below.
+      if (!index.length && route.params.startPage == null) {
+        setBooklet((current) =>
+          current
+            ? {
+                ...current,
+                startPage: 1,
+                endPage: current.pageCount || current.endPage || null,
+              }
+            : current
+        );
+      }
     } catch (caught) {
       setError(friendlyBookletError(caught));
     } finally {
@@ -72,9 +94,24 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
 
   useEffect(() => {
     void load();
-  }, [route.params.bookletId]);
+  }, [route.params.bookletId, route.params.startPage, route.params.studentName]);
 
-  const ready = Boolean(booklet?.digitised && booklet.pdfPath);
+  const selectScript = (script: ArchivedScript) => {
+    setBooklet((current) =>
+      current
+        ? {
+            ...current,
+            studentName: script.studentName || current.studentName,
+            registrationNo: script.registrationNumber || current.registrationNo,
+            startPage: script.firstPage,
+            endPage: script.lastPage,
+          }
+        : current
+    );
+  };
+
+  const ready = booklet ? bookletHasPdf(booklet) : false;
+  const locationLine = booklet ? formatPhysicalLocation(booklet) : BOOKLET_COPY.locationMissing;
 
   const showToast = (message: string) => {
     setToast(message);
@@ -175,6 +212,11 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
             )}
 
             <View style={styles.summaryCard}>
+              <View style={[styles.statusChip, ready ? styles.statusReady : styles.statusPhysical]}>
+                <Text style={[styles.statusChipText, ready ? styles.statusReadyText : styles.statusPhysicalText]}>
+                  {ready ? BOOKLET_COPY.pdfReady : BOOKLET_COPY.notDigitised}
+                </Text>
+              </View>
               <SummaryRow
                 label={BOOKLET_COPY.courseUnit}
                 value={`${booklet.unitCode} · ${booklet.unitName}`}
@@ -208,6 +250,48 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
                 styles={styles}
                 last
               />
+            </View>
+
+            <View style={styles.locationCard}>
+              <Text style={styles.locationLabel}>{BOOKLET_COPY.locationLabel}</Text>
+              <Text style={styles.locationValue}>{locationLine}</Text>
+            </View>
+
+            <View style={styles.scriptsCard}>
+              <Text style={styles.scriptsTitle}>Students in this PDF</Text>
+              {scripts.length === 0 ? (
+                <Text style={styles.scriptsEmpty}>
+                  No page index yet. The whole PDF is shown
+                  {booklet.studentName ? ` · listed student: ${booklet.studentName}` : ''}.
+                </Text>
+              ) : (
+                scripts.map((script) => {
+                  const active =
+                    booklet.registrationNo.trim().toLowerCase() ===
+                      script.registrationNumber.trim().toLowerCase() &&
+                    booklet.startPage === script.firstPage;
+                  return (
+                    <Pressable
+                      key={script.id}
+                      style={[styles.scriptRow, active ? styles.scriptRowActive : null]}
+                      onPress={() => selectScript(script)}
+                    >
+                      <View style={styles.scriptCopy}>
+                        <Text style={styles.scriptName}>{script.studentName || 'Student'}</Text>
+                        <Text style={styles.scriptMeta}>
+                          {script.registrationNumber || BOOKLET_COPY.missingValue}
+                          {script.firstPage
+                            ? ` · pages ${script.firstPage}${script.lastPage ? `–${script.lastPage}` : ''}`
+                            : ''}
+                        </Text>
+                      </View>
+                      <Text style={styles.scriptAction}>
+                        {script.firstPage ? `Open p.${script.firstPage}` : 'View'}
+                      </Text>
+                    </Pressable>
+                  );
+                })
+              )}
             </View>
 
             <View style={styles.physicalCard}>
@@ -283,57 +367,59 @@ export const BookletDetailsScreen: React.FC<Props> = ({ navigation, route }) => 
             onRequestClose={() => setRequestOpen(false)}
           >
             <View style={styles.modalBackdrop}>
-              <View style={styles.modalCard}>
-                <Text style={styles.modalTitle}>{BOOKLET_COPY.requestPhysical}</Text>
-                <Text style={styles.modalHint}>{BOOKLET_COPY.requestPhysicalHint}</Text>
-                <SummaryRow
-                  label={BOOKLET_COPY.studentName}
-                  value={booklet.studentName || BOOKLET_COPY.missingValue}
-                  styles={styles}
-                />
-                <SummaryRow
-                  label={BOOKLET_COPY.registrationNo}
-                  value={booklet.registrationNo || BOOKLET_COPY.missingValue}
-                  styles={styles}
-                />
-                <SummaryRow label="School" value={booklet.school || BOOKLET_COPY.missingValue} styles={styles} />
-                <SummaryRow
-                  label="Programme"
-                  value={booklet.programme || BOOKLET_COPY.missingValue}
-                  styles={styles}
-                />
-                <SummaryRow label={BOOKLET_COPY.session} value={booklet.academicSession} styles={styles} />
-                <SummaryRow
-                  label={BOOKLET_COPY.courseUnit}
-                  value={`${booklet.unitCode} · ${booklet.unitName}`}
-                  styles={styles}
-                  last
-                />
-                <Text style={styles.reasonLabel}>{BOOKLET_COPY.requestReason}</Text>
-                <TextInput
-                  style={styles.reasonInput}
-                  value={reason}
-                  onChangeText={setReason}
-                  placeholder={BOOKLET_COPY.requestReasonHint}
-                  placeholderTextColor={palette.muted}
-                  multiline
-                />
-                <Pressable
-                  style={({ pressed }) => [styles.physicalBtn, pressed ? styles.pressed : null]}
-                  onPress={() => {
-                    void submitPhysicalRequest();
-                  }}
-                  disabled={requesting}
-                >
-                  {requesting ? (
-                    <ActivityIndicator color={tokens.onPrimary} />
-                  ) : (
-                    <Text style={styles.filledBtnText}>{BOOKLET_COPY.submitRequest}</Text>
-                  )}
-                </Pressable>
-                <Pressable style={styles.cancelBtn} onPress={() => setRequestOpen(false)}>
-                  <Text style={styles.cancelText}>{BOOKLET_COPY.close}</Text>
-                </Pressable>
+              <View style={[styles.modalCard, { maxHeight: '90%' }]}>
+                <KeyboardScrollView bottomOffset={16} showsVerticalScrollIndicator={false}>
+                  <Text style={styles.modalTitle}>{BOOKLET_COPY.requestPhysical}</Text>
+                  <Text style={styles.modalHint}>{BOOKLET_COPY.requestPhysicalHint}</Text>
+                  <SummaryRow
+                    label={BOOKLET_COPY.studentName}
+                    value={booklet.studentName || BOOKLET_COPY.missingValue}
+                    styles={styles}
+                  />
+                  <SummaryRow
+                    label={BOOKLET_COPY.registrationNo}
+                    value={booklet.registrationNo || BOOKLET_COPY.missingValue}
+                    styles={styles}
+                  />
+                  <SummaryRow label="School" value={booklet.school || BOOKLET_COPY.missingValue} styles={styles} />
+                  <SummaryRow
+                    label="Programme"
+                    value={booklet.programme || BOOKLET_COPY.missingValue}
+                    styles={styles}
+                  />
+                  <SummaryRow label={BOOKLET_COPY.session} value={booklet.academicSession} styles={styles} />
+                  <SummaryRow
+                    label={BOOKLET_COPY.courseUnit}
+                    value={`${booklet.unitCode} · ${booklet.unitName}`}
+                    styles={styles}
+                  />
+                  <SummaryRow label={BOOKLET_COPY.locationLabel} value={locationLine} styles={styles} last />
+                  <Text style={styles.reasonLabel}>{BOOKLET_COPY.requestReason}</Text>
+                  <TextInput
+                    style={styles.reasonInput}
+                    value={reason}
+                    onChangeText={setReason}
+                    placeholder={BOOKLET_COPY.requestReasonHint}
+                    placeholderTextColor={palette.muted}
+                    multiline
+                  />
+                  <Pressable
+                    style={({ pressed }) => [styles.physicalBtn, pressed ? styles.pressed : null]}
+                    onPress={() => {
+                      void submitPhysicalRequest();
+                    }}
+                    disabled={requesting}
+                  >
+                    {requesting ? (
+                      <ActivityIndicator color={tokens.onPrimary} />
+                    ) : (
+                      <Text style={styles.filledBtnText}>{BOOKLET_COPY.submitRequest}</Text>
+                    )}
+                  </Pressable>
+                  <Pressable style={styles.cancelBtn} onPress={() => setRequestOpen(false)}>
+                    <Text style={styles.cancelText}>{BOOKLET_COPY.close}</Text>
+                  </Pressable>
+                </KeyboardScrollView>
               </View>
             </View>
           </Modal>
@@ -417,6 +503,30 @@ function createStyles(palette: ReturnType<typeof lecturerPalette>) {
       borderWidth: 1,
       borderColor: palette.line,
       paddingHorizontal: spacing.md,
+      paddingTop: spacing.md,
+    },
+    statusChip: {
+      alignSelf: 'flex-start',
+      borderRadius: borderRadius.pill,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      marginBottom: spacing.sm,
+    },
+    statusReady: {
+      backgroundColor: tokens.statusVerifiedBg,
+    },
+    statusPhysical: {
+      backgroundColor: tokens.statusPendingBg,
+    },
+    statusChipText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    statusReadyText: {
+      color: tokens.statusVerifiedText,
+    },
+    statusPhysicalText: {
+      color: tokens.statusPendingText,
     },
     summaryRow: {
       paddingVertical: spacing.md,
@@ -436,6 +546,62 @@ function createStyles(palette: ReturnType<typeof lecturerPalette>) {
       color: palette.ink,
       fontFamily: typography.fontFamilySans,
     },
+    locationCard: {
+      backgroundColor: tokens.statusShelfBg,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: palette.line,
+      padding: spacing.md,
+      gap: spacing.xs,
+    },
+    locationLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: tokens.statusShelfText,
+      textTransform: 'uppercase',
+    },
+    locationValue: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: tokens.statusShelfText,
+      fontFamily: typography.fontFamilySans,
+    },
+    scriptsCard: {
+      backgroundColor: palette.card,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: palette.line,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    scriptsTitle: {
+      fontSize: control.body,
+      fontWeight: '800',
+      color: palette.ink,
+    },
+    scriptsEmpty: {
+      fontSize: control.subtitle,
+      color: palette.muted,
+      lineHeight: 18,
+    },
+    scriptRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: palette.line,
+    },
+    scriptRowActive: {
+      backgroundColor: tokens.surfaceContainerLow,
+      marginHorizontal: -spacing.sm,
+      paddingHorizontal: spacing.sm,
+      borderRadius: borderRadius.md,
+    },
+    scriptCopy: { flex: 1 },
+    scriptName: { fontSize: 14, fontWeight: '700', color: palette.ink },
+    scriptMeta: { marginTop: 2, fontSize: 12, color: palette.muted },
+    scriptAction: { fontSize: 12, fontWeight: '700', color: tokens.secondary },
     physicalCard: {
       backgroundColor: palette.card,
       borderRadius: borderRadius.lg,

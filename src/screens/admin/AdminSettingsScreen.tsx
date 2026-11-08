@@ -13,12 +13,23 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { KeyboardScrollView } from '../../components/KeyboardScrollView';
 import { LecturerTopHeader } from '../../components/LecturerTopHeader';
 import { AppearancePicker } from '../../components/AppearancePicker';
 import { NotificationCard, iconForNotice, labelForNotice, toneForNotice } from '../../components/NotificationCard';
 import { useAuth } from '../../context/AuthContext';
-import { useTheme } from '../../context/ThemeContext';
+import { adminPalette, useTheme } from '../../context/ThemeContext';
 import { useVault } from '../../context/VaultContext';
+import {
+  addAcademicSession,
+  addProgramme,
+  addSchool,
+  loadAcademicSessions,
+  loadProgrammesBySchool,
+  loadSchools,
+  removeAcademicSession,
+  removeProgramme,
+} from '../../services/catalogService';
 import { listNotifications } from '../../services/notificationService';
 import { AppNotification } from '../../types';
 import { borderRadius, colors as tokens, control, spacing } from '../../theme';
@@ -41,7 +52,7 @@ const HEADERS: Record<Exclude<Panel, null>, { title: string; subtitle: string }>
   account: { title: 'Account Management', subtitle: 'Update your profile and password' },
   notifications: { title: 'Notification Settings', subtitle: 'Manage alerts and notifications' },
   security: { title: 'Security', subtitle: 'Password and session control' },
-  preferences: { title: 'App Preferences', subtitle: 'Theme and archive display' },
+  preferences: { title: 'App Preferences', subtitle: 'Theme, schools, programmes, and sessions' },
   about: { title: 'About', subtitle: 'App information and help' },
 };
 
@@ -49,6 +60,7 @@ export const AdminSettingsScreen: React.FC = () => {
   const { logout, user, updateUserProfile, changePassword } = useAuth();
   const { settings, updateSettings } = useVault();
   const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const dark = theme === 'dark';
   const [panel, setPanel] = useState<Panel>(null);
   const [name, setName] = useState(user?.name ?? '');
@@ -62,6 +74,12 @@ export const AdminSettingsScreen: React.FC = () => {
   const [hours, setHours] = useState(String(settings.dispatchHours));
   const [facultyInput, setFacultyInput] = useState('');
   const [sessionInput, setSessionInput] = useState('');
+  const [programmeSchool, setProgrammeSchool] = useState('');
+  const [programmeInput, setProgrammeInput] = useState('');
+  const [liveSchools, setLiveSchools] = useState<string[]>([]);
+  const [liveProgrammes, setLiveProgrammes] = useState<Record<string, string[]>>({});
+  const [liveSessions, setLiveSessions] = useState<string[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [notes, setNotes] = useState<AppNotification[]>([]);
@@ -91,9 +109,33 @@ export const AdminSettingsScreen: React.FC = () => {
     }
   }, []);
 
+  const loadCatalog = useCallback(async () => {
+    setCatalogLoading(true);
+    try {
+      const [schools, programmes, sessions] = await Promise.all([
+        loadSchools(),
+        loadProgrammesBySchool(),
+        loadAcademicSessions(),
+      ]);
+      setLiveSchools(schools);
+      setLiveProgrammes(programmes);
+      setLiveSessions(sessions);
+      setProgrammeSchool((current) => (current && schools.includes(current) ? current : schools[0] || ''));
+    } catch {
+      setLiveSchools(settings.faculties);
+      setLiveSessions(settings.sessions);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [settings.faculties, settings.sessions]);
+
   useEffect(() => {
     if (panel === 'notifications') void loadNotes();
   }, [panel, loadNotes]);
+
+  useEffect(() => {
+    if (panel === 'preferences') void loadCatalog();
+  }, [panel, loadCatalog]);
 
   const header = panel ? HEADERS[panel] : { title: 'Settings', subtitle: 'System preferences and security' };
 
@@ -147,11 +189,136 @@ export const AdminSettingsScreen: React.FC = () => {
 
   const saveArchive = async () => {
     const parsed = Number(hours);
-    await updateSettings({
-      academicYear: year.trim() || settings.academicYear,
-      dispatchHours: Number.isFinite(parsed) && parsed > 0 ? parsed : settings.dispatchHours,
-    });
-    setNotice('Archive settings saved.');
+    setSaving(true);
+    setNotice('');
+    try {
+      await updateSettings({
+        academicYear: year.trim() || settings.academicYear,
+        dispatchHours: Number.isFinite(parsed) && parsed > 0 ? parsed : settings.dispatchHours,
+        faculties: liveSchools.length ? liveSchools : settings.faculties,
+        sessions: liveSessions.length ? liveSessions : settings.sessions,
+      });
+      setNotice('Archive settings saved. Officers and lecturers use the school, programme, and session lists below.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not save settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addSchoolItem = async () => {
+    const value = facultyInput.trim();
+    if (!value) return;
+    setSaving(true);
+    setNotice('');
+    try {
+      await addSchool(value);
+      const nextSchools = liveSchools.includes(value) ? liveSchools : [...liveSchools, value].sort((a, b) => a.localeCompare(b));
+      setLiveSchools(nextSchools);
+      setFacultyInput('');
+      await updateSettings({ faculties: nextSchools });
+      setNotice('School added for officer archive and lecturer search.');
+      await loadCatalog();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not add school.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addSessionItem = async () => {
+    const value = sessionInput.trim();
+    if (!value) return;
+    setSaving(true);
+    setNotice('');
+    try {
+      await addAcademicSession(value);
+      const nextSessions = liveSessions.includes(value)
+        ? liveSessions
+        : [...liveSessions, value].sort((a, b) => a.localeCompare(b));
+      setLiveSessions(nextSessions);
+      setSessionInput('');
+      await updateSettings({ sessions: nextSessions });
+      setNotice('Academic session added for officers and lecturers.');
+      await loadCatalog();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not add session.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addProgrammeItem = async () => {
+    const school = programmeSchool.trim();
+    const code = programmeInput.trim();
+    if (!school || !code) {
+      setNotice('Choose a school and enter a programme code.');
+      return;
+    }
+    setSaving(true);
+    setNotice('');
+    try {
+      await addProgramme(school, code);
+      setProgrammeInput('');
+      setNotice(`Programme ${code} added under ${school}.`);
+      await loadCatalog();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not add programme.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSessionItem = (value: string) => {
+    Alert.alert('Remove session', `Remove “${value}” from officer and lecturer lists?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setSaving(true);
+            setNotice('');
+            try {
+              await removeAcademicSession(value);
+              const nextSessions = liveSessions.filter((item) => item !== value);
+              setLiveSessions(nextSessions);
+              await updateSettings({ sessions: nextSessions });
+              setNotice('Session removed.');
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : 'Could not remove session.');
+            } finally {
+              setSaving(false);
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
+  const deleteProgrammeItem = (school: string, code: string) => {
+    Alert.alert('Remove programme', `Remove ${code} from ${school}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setSaving(true);
+            setNotice('');
+            try {
+              await removeProgramme(school, code);
+              setNotice(`Programme ${code} removed.`);
+              await loadCatalog();
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : 'Could not remove programme.');
+            } finally {
+              setSaving(false);
+            }
+          })();
+        },
+      },
+    ]);
   };
 
   const signOut = () => {
@@ -162,28 +329,28 @@ export const AdminSettingsScreen: React.FC = () => {
   };
 
   return (
-    <View style={[styles.screen, dark && styles.screenDark]}>
+    <View style={[styles.screen, { backgroundColor: palette.page }]}>
       <LecturerTopHeader subtitle="Admin Portal" />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {panel ? (
           <TouchableOpacity style={styles.panelBack} onPress={closePanel} accessibilityRole="button" accessibilityLabel="Back to settings">
             <Feather name="chevron-left" size={20} color={tokens.primary} />
             <View>
-              <Text style={[styles.pageTitle, dark && styles.textLight]}>{header.title}</Text>
-              <Text style={styles.pageSub}>{header.subtitle}</Text>
+              <Text style={[styles.pageTitle, { color: palette.ink }]}>{header.title}</Text>
+              <Text style={[styles.pageSub, { color: palette.muted }]}>{header.subtitle}</Text>
             </View>
           </TouchableOpacity>
         ) : (
           <>
-            <Text style={[styles.pageTitle, dark && styles.textLight]}>Settings</Text>
-            <Text style={styles.pageSub}>System preferences and security</Text>
+            <Text style={[styles.pageTitle, { color: palette.ink }]}>Settings</Text>
+            <Text style={[styles.pageSub, { color: palette.muted }]}>System preferences and security</Text>
           </>
         )}
         {panel === null ? (
           <>
             <BrandHero />
 
-            <View style={[styles.menuCard, dark && styles.cardDark]}>
+            <View style={[styles.menuCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
               <MenuRow
                 icon="account-circle-outline"
                 title="Account Management"
@@ -211,7 +378,7 @@ export const AdminSettingsScreen: React.FC = () => {
               <MenuRow
                 icon="tune"
                 title="App Preferences"
-                hint="Theme, language, and display"
+                hint="Theme, schools, programmes, and sessions"
                 iconBg="#6B21A8"
                 iconColor={tokens.onPrimary}
                 onPress={() => setPanel('preferences')}
@@ -230,14 +397,14 @@ export const AdminSettingsScreen: React.FC = () => {
             <AppearancePicker />
 
             <TouchableOpacity style={styles.logout} onPress={signOut} accessibilityRole="button" accessibilityLabel="Log Out">
-              <MaterialCommunityIcons name="logout" size={18} color={tokens.error} />
+              <MaterialCommunityIcons name="logout" size={18} color={tokens.onPrimary} />
               <Text style={styles.logoutText}>Log Out</Text>
             </TouchableOpacity>
           </>
         ) : null}
 
         {panel === 'account' ? (
-          <View style={[styles.panelCard, dark && styles.cardDark]}>
+          <View style={[styles.panelCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
             <Field label="Full name" value={name} onChangeText={setName} />
             <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
             <Field label="Phone number" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
@@ -251,11 +418,13 @@ export const AdminSettingsScreen: React.FC = () => {
 
         {panel === 'notifications' ? (
           <View>
-            <Text style={[styles.help, dark && styles.mutedLight]}>
+            <Text style={[styles.help, { color: palette.muted }]}>
               Staff account, retrieval, and booklet alerts for this admin sign-in appear here.
             </Text>
             {notesLoading ? <ActivityIndicator color={tokens.primary} style={styles.spinner} /> : null}
-            {!notesLoading && notes.length === 0 ? <Text style={styles.empty}>No notifications yet.</Text> : null}
+            {!notesLoading && notes.length === 0 ? (
+              <Text style={[styles.empty, { color: palette.muted }]}>No notifications yet.</Text>
+            ) : null}
             {notes.map((note) => (
               <NotificationCard
                 key={note.id}
@@ -272,8 +441,8 @@ export const AdminSettingsScreen: React.FC = () => {
         ) : null}
 
         {panel === 'security' ? (
-          <View style={[styles.panelCard, dark && styles.cardDark]}>
-            <Text style={[styles.help, dark && styles.mutedLight, styles.helpInCard]}>
+          <View style={[styles.panelCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
+            <Text style={[styles.help, { color: palette.muted }, styles.helpInCard]}>
               Change the password for this admin sign-in. Signed in as {user?.email || user?.name}.
             </Text>
             <Field label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secure />
@@ -292,76 +461,260 @@ export const AdminSettingsScreen: React.FC = () => {
         {panel === 'preferences' ? (
           <View>
             <AppearancePicker />
-            <View style={[styles.panelCard, dark && styles.cardDark]}>
-              <Text style={[styles.section, dark && styles.textLight]}>Archive display</Text>
+            <Text style={[styles.help, { color: palette.muted }]}>
+              These lists power officer archive forms and lecturer search. Changes here show up for both roles.
+            </Text>
+
+            <View style={[styles.panelCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>Archive display</Text>
               <Field label="Academic year" value={year} onChangeText={setYear} />
               <Field label="Dispatch window (hours)" value={hours} onChangeText={setHours} keyboardType="number-pad" />
-              {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-              <TouchableOpacity style={styles.primary} onPress={saveArchive}>
-                <Text style={styles.primaryText}>Save settings</Text>
+              <TouchableOpacity style={styles.primary} onPress={() => void saveArchive()} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color={tokens.onPrimary} />
+                ) : (
+                  <Text style={styles.primaryText}>Save display settings</Text>
+                )}
               </TouchableOpacity>
-              <Text style={[styles.section, dark && styles.textLight]}>Faculties</Text>
-              {settings.faculties.map((faculty) => (
-                <Text key={faculty} style={styles.chip}>
-                  {faculty}
+            </View>
+
+            <View
+              style={[
+                styles.panelCard,
+                styles.aboutCardGap,
+                { backgroundColor: palette.card, borderColor: palette.line },
+              ]}
+            >
+              <View style={styles.prefHead}>
+                <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>
+                  Schools (officer + lecturer)
                 </Text>
-              ))}
+                {catalogLoading ? <ActivityIndicator color={tokens.primary} /> : null}
+              </View>
+              {liveSchools.length === 0 ? (
+                <Text style={[styles.emptyInline, { color: palette.muted }]}>No schools loaded yet.</Text>
+              ) : (
+                liveSchools.map((faculty) => (
+                  <Text key={faculty} style={[styles.chip, { color: palette.ink, backgroundColor: palette.soft }]}>
+                    {faculty}
+                  </Text>
+                ))
+              )}
               <View style={styles.row}>
                 <TextInput
-                  style={[styles.inlineInput, dark && styles.inputDark]}
-                  placeholder="Add faculty"
-                  placeholderTextColor={tokens.placeholder}
+                  style={[
+                    styles.inlineInput,
+                    { backgroundColor: palette.field, borderColor: palette.line, color: palette.ink },
+                  ]}
+                  placeholder="Add school"
+                  placeholderTextColor={palette.muted}
                   value={facultyInput}
                   onChangeText={setFacultyInput}
                 />
-                <TouchableOpacity
-                  style={styles.smallBtn}
-                  onPress={() => {
-                    if (!facultyInput.trim()) return;
-                    void updateSettings({ faculties: [...settings.faculties, facultyInput.trim()] });
-                    setFacultyInput('');
-                  }}
-                >
-                  <Text style={styles.smallBtnText}>Add</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={[styles.section, dark && styles.textLight]}>Sessions</Text>
-              {settings.sessions.map((session) => (
-                <Text key={session} style={styles.chip}>
-                  {session}
-                </Text>
-              ))}
-              <View style={styles.row}>
-                <TextInput
-                  style={[styles.inlineInput, dark && styles.inputDark]}
-                  placeholder="Add session"
-                  placeholderTextColor={tokens.placeholder}
-                  value={sessionInput}
-                  onChangeText={setSessionInput}
-                />
-                <TouchableOpacity
-                  style={styles.smallBtn}
-                  onPress={() => {
-                    if (!sessionInput.trim()) return;
-                    void updateSettings({ sessions: [...settings.sessions, sessionInput.trim()] });
-                    setSessionInput('');
-                  }}
-                >
+                <TouchableOpacity style={styles.smallBtn} onPress={() => void addSchoolItem()} disabled={saving}>
                   <Text style={styles.smallBtnText}>Add</Text>
                 </TouchableOpacity>
               </View>
             </View>
+
+            <View
+              style={[
+                styles.panelCard,
+                styles.aboutCardGap,
+                { backgroundColor: palette.card, borderColor: palette.line },
+              ]}
+            >
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>
+                Programmes by school
+              </Text>
+              <Text style={[styles.help, styles.helpInCard, { color: palette.muted }]}>
+                Officers pick these when archiving. Lecturers use them when searching.
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.schoolChipRow}>
+                {liveSchools.map((school) => {
+                  const on = programmeSchool === school;
+                  return (
+                    <TouchableOpacity
+                      key={school}
+                      style={[
+                        styles.schoolChip,
+                        { backgroundColor: on ? tokens.primary : palette.soft },
+                      ]}
+                      onPress={() => setProgrammeSchool(school)}
+                    >
+                      <Text style={[styles.schoolChipText, { color: on ? tokens.onPrimary : palette.ink }]} numberOfLines={1}>
+                        {school.replace('School of ', '')}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              {(liveProgrammes[programmeSchool] || []).length === 0 ? (
+                <Text style={[styles.emptyInline, { color: palette.muted }]}>
+                  No programmes listed for this school yet.
+                </Text>
+              ) : (
+                (liveProgrammes[programmeSchool] || []).map((code) => (
+                  <View key={`${programmeSchool}-${code}`} style={styles.prefItemRow}>
+                    <Text style={[styles.chip, styles.prefItemChip, { color: palette.ink, backgroundColor: palette.soft }]}>
+                      {code}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => deleteProgrammeItem(programmeSchool, code)}
+                      hitSlop={8}
+                      accessibilityLabel={`Remove ${code}`}
+                    >
+                      <Feather name="x" size={16} color={palette.muted} />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+              <View style={styles.row}>
+                <TextInput
+                  style={[
+                    styles.inlineInput,
+                    { backgroundColor: palette.field, borderColor: palette.line, color: palette.ink },
+                  ]}
+                  placeholder="Add programme code"
+                  placeholderTextColor={palette.muted}
+                  autoCapitalize="characters"
+                  value={programmeInput}
+                  onChangeText={setProgrammeInput}
+                />
+                <TouchableOpacity style={styles.smallBtn} onPress={() => void addProgrammeItem()} disabled={saving}>
+                  <Text style={styles.smallBtnText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.panelCard,
+                styles.aboutCardGap,
+                { backgroundColor: palette.card, borderColor: palette.line },
+              ]}
+            >
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>
+                Academic sessions
+              </Text>
+              {liveSessions.length === 0 ? (
+                <Text style={[styles.emptyInline, { color: palette.muted }]}>No sessions loaded yet.</Text>
+              ) : (
+                liveSessions.map((session) => (
+                  <View key={session} style={styles.prefItemRow}>
+                    <Text style={[styles.chip, styles.prefItemChip, { color: palette.ink, backgroundColor: palette.soft }]}>
+                      {session}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => deleteSessionItem(session)}
+                      hitSlop={8}
+                      accessibilityLabel={`Remove ${session}`}
+                    >
+                      <Feather name="x" size={16} color={palette.muted} />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+              <View style={styles.row}>
+                <TextInput
+                  style={[
+                    styles.inlineInput,
+                    { backgroundColor: palette.field, borderColor: palette.line, color: palette.ink },
+                  ]}
+                  placeholder="e.g. 2027 Jan – Apr"
+                  placeholderTextColor={palette.muted}
+                  value={sessionInput}
+                  onChangeText={setSessionInput}
+                />
+                <TouchableOpacity style={styles.smallBtn} onPress={() => void addSessionItem()} disabled={saving}>
+                  <Text style={styles.smallBtnText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {notice ? <Text style={styles.notice}>{notice}</Text> : null}
           </View>
         ) : null}
 
         {panel === 'about' ? (
-          <BrandHero>
-            <Text style={styles.aboutCopy}>
-              Staff accounts, booklet uploads, and retrieval activity are managed from this admin portal.
-            </Text>
-          </BrandHero>
+          <View>
+            <BrandHero>
+              <Text style={styles.aboutCopy}>Umma Exam Archive · Version 1.0.0</Text>
+            </BrandHero>
+
+            <View style={[styles.panelCard, { backgroundColor: palette.card, borderColor: palette.line }]}>
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>App information</Text>
+              <AboutRow
+                label="App name"
+                value="Umma Exam Archive"
+                ink={palette.ink}
+                muted={palette.muted}
+                line={palette.line}
+              />
+              <AboutRow
+                label="Version"
+                value="1.0.0"
+                ink={palette.ink}
+                muted={palette.muted}
+                line={palette.line}
+              />
+              <AboutRow
+                label="Institution"
+                value="Umma University"
+                ink={palette.ink}
+                muted={palette.muted}
+                line={palette.line}
+              />
+              <AboutRow
+                label="Purpose"
+                value="Store, organise, and retrieve examination booklets and PDFs by school, session, and unit."
+                ink={palette.ink}
+                muted={palette.muted}
+                line={palette.line}
+                last
+              />
+            </View>
+
+            <View
+              style={[
+                styles.panelCard,
+                styles.aboutCardGap,
+                { backgroundColor: palette.card, borderColor: palette.line },
+              ]}
+            >
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>
+                What admins can do
+              </Text>
+              <HelpBullet text="Create and replace lecturer and examination officer accounts from Users." muted={palette.muted} />
+              <HelpBullet text="Monitor uploads, downloads, and locate requests from Activity and the home tiles." muted={palette.muted} />
+              <HelpBullet text="Manage schools, programmes, and sessions under App Preferences so officers and lecturers see the same lists." muted={palette.muted} />
+              <HelpBullet
+                text="Change your admin password and end the current session from Security."
+                muted={palette.muted}
+                last
+              />
+            </View>
+
+            <View
+              style={[
+                styles.panelCard,
+                styles.aboutCardGap,
+                { backgroundColor: palette.card, borderColor: palette.line },
+              ]}
+            >
+              <Text style={[styles.section, styles.sectionFirst, { color: palette.ink }]}>Help</Text>
+              <HelpBullet text="Home tiles open the matching Users or Activity filter when tapped." muted={palette.muted} />
+              <HelpBullet text="Pull down on Home or Activity to refresh live counts and recent events." muted={palette.muted} />
+              <HelpBullet text="Use Appearance in Settings to switch light or dark mode for the whole admin portal." muted={palette.muted} />
+              <HelpBullet
+                text="For account or archive issues, contact the examinations office or your system administrator."
+                muted={palette.muted}
+                last
+              />
+            </View>
+          </View>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
     </View>
   );
 };
@@ -391,6 +744,38 @@ function BrandHero({ children }: { children?: React.ReactNode }) {
   );
 }
 
+function AboutRow({
+  label,
+  value,
+  ink,
+  muted,
+  line,
+  last,
+}: {
+  label: string;
+  value: string;
+  ink: string;
+  muted: string;
+  line: string;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.aboutRow, !last && { borderBottomWidth: 1, borderBottomColor: line }]}>
+      <Text style={[styles.aboutLabel, { color: muted }]}>{label}</Text>
+      <Text style={[styles.aboutValue, { color: ink }]}>{value}</Text>
+    </View>
+  );
+}
+
+function HelpBullet({ text, muted, last }: { text: string; muted: string; last?: boolean }) {
+  return (
+    <View style={[styles.helpBullet, last && styles.helpBulletLast]}>
+      <View style={[styles.helpDot, { backgroundColor: muted }]} />
+      <Text style={[styles.helpBulletText, { color: muted }]}>{text}</Text>
+    </View>
+  );
+}
+
 function MenuRow({
   icon,
   title,
@@ -409,6 +794,7 @@ function MenuRow({
   last?: boolean;
 }) {
   const { theme } = useTheme();
+  const palette = adminPalette(theme);
   const dark = theme === 'dark';
   return (
     <TouchableOpacity
@@ -422,10 +808,10 @@ function MenuRow({
         <MaterialCommunityIcons name={icon} size={MENU_ICON} color={iconColor} />
       </View>
       <View style={styles.menuCopy}>
-        <Text style={[styles.menuTitle, dark && styles.textLight]}>{title}</Text>
-        <Text style={styles.menuHint}>{hint}</Text>
+        <Text style={[styles.menuTitle, { color: palette.ink }]}>{title}</Text>
+        <Text style={[styles.menuHint, { color: palette.muted }]}>{hint}</Text>
       </View>
-      <Feather name="chevron-right" size={18} color={tokens.outline} />
+      <Feather name="chevron-right" size={18} color={palette.muted} />
     </TouchableOpacity>
   );
 }
@@ -521,17 +907,15 @@ const styles = StyleSheet.create({
   menuHint: { color: tokens.onSurfaceVariant, fontSize: 12, marginTop: 2 },
   logout: {
     marginTop: spacing.lg,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 16,
-    minHeight: 52,
+    backgroundColor: tokens.primary,
+    borderRadius: 12,
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  logoutText: { color: tokens.error, fontWeight: '700', fontSize: 15 },
+  logoutText: { color: tokens.onPrimary, fontWeight: '700', fontSize: 15 },
   panelCard: {
     backgroundColor: tokens.surfaceContainerLowest,
     borderRadius: 18,
@@ -549,6 +933,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  aboutCardGap: { marginTop: 12 },
+  sectionFirst: { marginTop: 0 },
+  aboutRow: { paddingVertical: 10 },
+  aboutLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  aboutValue: { marginTop: 4, fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  helpBullet: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
+  helpBulletLast: { marginBottom: 0 },
+  helpDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
+  helpBulletText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: '500' },
+  prefHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  emptyInline: { fontSize: 13, marginBottom: 10 },
+  schoolChipRow: { gap: 8, paddingBottom: 12 },
+  schoolChip: {
+    borderRadius: borderRadius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    maxWidth: 180,
+  },
+  schoolChipText: { fontSize: 12, fontWeight: '700' },
+  prefItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  prefItemChip: { flex: 1, marginBottom: 0 },
   empty: { color: tokens.placeholder, textAlign: 'center', marginTop: 24 },
   spinner: { marginTop: 16 },
   notice: { color: tokens.secondary, fontSize: 13, marginBottom: 8 },

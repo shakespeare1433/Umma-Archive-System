@@ -12,10 +12,10 @@ interface Props {
 export const OnboardingSearchScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <OnboardingSlide
-      source={require('../../assets/images/onboarding-organize-blue.jpg')}
+      source={require('../../assets/images/onboarding-2-know-location-ghost.jpg')}
       ctaLabel="Next"
       onNext={() => navigation.navigate('OnboardingLocate')}
-      onSkip={() => navigation.navigate('SignIn')}
+      onSkip={() => navigation.replace('SignIn')}
       onBack={() => navigation.goBack()}
     />
   );

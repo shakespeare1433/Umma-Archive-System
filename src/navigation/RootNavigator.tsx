@@ -13,6 +13,8 @@ import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { SearchResultsScreen } from '../screens/lecturer/SearchResultsScreen';
 import { BookletDetailsScreen } from '../screens/lecturer/BookletDetailsScreen';
+import { LecturerPdfViewerScreen } from '../screens/lecturer/LecturerPdfViewerScreen';
+import { LecturerRequestPhysicalScreen } from '../screens/lecturer/LecturerRequestPhysicalScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -51,6 +53,16 @@ export const RootNavigator: React.FC = () => {
           <Stack.Screen
             name="LecturerBookletDetails"
             component={BookletDetailsScreen}
+            options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="LecturerPdfViewer"
+            component={LecturerPdfViewerScreen}
+            options={{ animation: 'slide_from_bottom', contentStyle: { backgroundColor: '#0B1220' } }}
+          />
+          <Stack.Screen
+            name="LecturerRequestPhysical"
+            component={LecturerRequestPhysicalScreen}
             options={{ animation: 'slide_from_right' }}
           />
         </>

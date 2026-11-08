@@ -35,12 +35,12 @@ The system also enables Examination Officers to upload combined examination PDF 
 <img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 15 41 17" src="https://github.com/user-attachments/assets/763221f2-cf13-4f05-baaf-2001cad893ac" />
 <h3>login screen</h3>
 <img width="210" height="320" alt="WhatsApp Image 2026-10-31 at 23 34 15" src="https://github.com/user-attachments/assets/7b7ec35e-7d90-4e2f-bc95-926662d3fc1d" />
-<h3>ecturer and examination officers' screen</h3>
-<img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33" src="https://github.com/user-attachments/assets/f504a33a-be78-41c9-980f-d7ccc559a3ad" />
-<img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33 (2)" src="https://github.com/user-attachments/assets/284b21a0-a72a-4dbc-9b3e-0d4ad5576578" />
-<img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33 (1)" src="https://github.com/user-attachments/assets/cb174d6c-42fb-4797-a564-381952070877" />
-<img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 32" src="https://github.com/user-attachments/assets/e6c4f486-2839-428b-9ad2-4e3dbaf6eca8" />
-<img width="210" height="320" alt="WhatsApp Image 2026-11-05 at 15 41 21" src="https://github.com/user-attachments/assets/f29832a1-3ed0-4ac1-a80c-3297ca2b10b8" />
+<h3>Lecturer and examination officers' screen</h3>
+<img width="200" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33" src="https://github.com/user-attachments/assets/f504a33a-be78-41c9-980f-d7ccc559a3ad" />
+<img width="200" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33 (2)" src="https://github.com/user-attachments/assets/284b21a0-a72a-4dbc-9b3e-0d4ad5576578" />
+<img width="200" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 33 (1)" src="https://github.com/user-attachments/assets/cb174d6c-42fb-4797-a564-381952070877" />
+<img width="200" height="320" alt="WhatsApp Image 2026-11-05 at 18 36 32" src="https://github.com/user-attachments/assets/e6c4f486-2839-428b-9ad2-4e3dbaf6eca8" />
+<img width="200" height="320" alt="WhatsApp Image 2026-11-05 at 15 41 21" src="https://github.com/user-attachments/assets/f29832a1-3ed0-4ac1-a80c-3297ca2b10b8" />
 
 
 ## 📥 Download the Application

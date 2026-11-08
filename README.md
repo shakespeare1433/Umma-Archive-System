@@ -28,8 +28,8 @@ The system also enables Examination Officers to upload combined examination PDF 
 - Git and GitHub
 
 ## 📱 Application Screenshots
+<img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 18 36 33" src="https://github.com/user-attachments/assets/9176ae9f-e819-46e3-afc4-d448e1689b95" />
 
-Screenshots of the application will be displayed here.
 
 <!-- Add your screenshots here -->
 

@@ -28,7 +28,7 @@ The system also enables Examination Officers to upload combined examination PDF 
 - Git and GitHub
 
 ## 📱 Application Screenshots
-splash screen and onboarding screen
+<h3>splash screen and onboarding screen</h3>
 <img width="738" height="1600" alt="splash" src="https://github.com/user-attachments/assets/cbbace5b-37c8-458e-96e8-f99ddc61c53a" />
 <img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 16" src="https://github.com/user-attachments/assets/ef6f16ae-e3ea-47ca-a585-657002561457" />
 <img width="738" height="1600" alt="WhatsApp Image 2026-11-05 at 15 41 18" src="https://github.com/user-attachments/assets/a9ccc7c3-acfa-4134-b6b3-adcb8b4bb143" />

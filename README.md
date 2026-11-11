@@ -50,7 +50,7 @@ Download the Android APK from the latest GitHub release:
 **[Download Umma Archive System APK](https://github.com/shakespeare1433/Umma-Archive-System/releases/latest)**
 
 1. Open the release page on your Android phone.
-2. Download the APK file.
+2. Download the APK file
 3. Allow installation from the appropriate source if Android asks.
 4. Install and open the application.
 
